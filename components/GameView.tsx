@@ -7,12 +7,11 @@ import { getHexKey, getNeighbors, checkGrowthCondition, getSecondsToGrow, hexToP
 import Hexagon from './Hexagon.tsx'; 
 import Unit from './Unit.tsx';
 import { 
-  AlertCircle, Layers, Pause, Play, Trophy, Coins, Footprints, Medal, RefreshCcw, Zap, AlertTriangle, Menu, CheckCircle, XCircle, LogOut,
-  User, Shield, Ghost, Bot, Crown, Target
+  AlertCircle, Layers, Pause, Play, Trophy, Coins, Footprints, Medal, RefreshCcw, Zap, AlertTriangle, Menu, LogOut,
+  User, Shield, Ghost, Bot, Crown, Target, Activity
 } from 'lucide-react';
 import { UPGRADE_LOCK_QUEUE_SIZE, EXCHANGE_RATE_COINS_PER_MOVE, HEX_SIZE } from '../constants.ts';
 import { Hex } from '../types.ts';
-import GameAdvisor from './GameAdvisor.tsx';
 
 const VIEWPORT_PADDING = 150; 
 const ANIMATION_STEP_MS = 250; // Speed of movement
@@ -43,7 +42,7 @@ const GameView: React.FC = () => {
 
   // Local state for exit confirmation
   const [showExitConfirmation, setShowExitConfirmation] = useState(false);
-
+  
   // Select state slices
   const { 
     grid, player, bot, user, winCondition, gameStatus,
@@ -157,22 +156,23 @@ const GameView: React.FC = () => {
     return visibleIds;
   }, [grid, viewState, dimensions]);
 
-  const connectorLines = useMemo(() => {
-    // If moving, don't show connector lines, it looks messy
-    if (isMoving) return null;
+  // Pre-calculate connector line data to map cleanly in JSX
+  const connectorData = useMemo(() => {
+    if (isMoving) return [];
 
     const start = hexToPixel(player.q, player.r);
-    return playerNeighbors.map(neighbor => {
+    const lines: Array<{ key: string, points: number[], color: string, dash: number[], opacity: number }> = [];
+
+    playerNeighbors.forEach(neighbor => {
        const key = getHexKey(neighbor.q, neighbor.r);
        const hex = grid[key];
        const isBot = neighbor.q === bot.q && neighbor.r === bot.r;
        const isLocked = hex && hex.maxLevel > player.playerLevel;
        
-       if (isBot) return null; 
+       if (isBot) return; 
        
        const end = hexToPixel(neighbor.q, neighbor.r);
        
-       // Improved cost logic visual for connectors
        let cost = 1;
        if (hex && hex.maxLevel >= 2) cost = hex.maxLevel;
 
@@ -180,18 +180,16 @@ const GameView: React.FC = () => {
        const color = canAfford ? '#3b82f6' : '#ef4444'; 
        const dash = [5, 5];
 
-       return (
-         <Line
-           key={`conn-${key}`}
-           points={[start.x, start.y, end.x, end.y]}
-           stroke={color}
-           strokeWidth={2}
-           dash={dash}
-           opacity={isLocked ? 0.2 : 0.6} 
-           listening={false}
-         />
-       );
+       lines.push({
+         key: `conn-${key}`,
+         points: [start.x, start.y, end.x, end.y],
+         color,
+         dash,
+         opacity: isLocked ? 0.2 : 0.6
+       });
     });
+    
+    return lines;
   }, [player.q, player.r, player.moves, player.coins, player.playerLevel, playerNeighbors, grid, bot.q, bot.r, isMoving]);
 
 
@@ -221,7 +219,17 @@ const GameView: React.FC = () => {
               />
             ))}
             
-            {connectorLines}
+            {connectorData.map(line => (
+              <Line 
+                key={line.key}
+                points={line.points}
+                stroke={line.color}
+                strokeWidth={2}
+                dash={line.dash}
+                opacity={line.opacity}
+                listening={false}
+              />
+            ))}
 
             <Unit q={player.q} r={player.r} type={player.type} />
             <Unit q={bot.q} r={bot.r} type={bot.type} />
@@ -230,9 +238,6 @@ const GameView: React.FC = () => {
       </div>
 
       {/* --- UI OVERLAYS (Z-INDEX > 0) --- */}
-
-      {/* Game Advisor Chat */}
-      <GameAdvisor />
 
       {/* VICTORY MODAL */}
       {gameStatus === 'VICTORY' && (
@@ -355,16 +360,6 @@ const GameView: React.FC = () => {
         </div>
       )}
 
-      {/* EXIT BUTTON (Triggers Modal) */}
-      <div className="absolute top-4 left-4 z-50 pointer-events-auto">
-        <button 
-            onClick={() => setShowExitConfirmation(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-slate-900/80 hover:bg-slate-800 backdrop-blur-md rounded-xl border border-slate-700 text-slate-300 hover:text-white transition-colors text-xs font-bold uppercase tracking-wider"
-        >
-            <Menu className="w-4 h-4" /> Menu
-        </button>
-      </div>
-
       {/* POPUP TOAST MESSAGE */}
       {toast && (
         <div className="absolute top-24 left-1/2 -translate-x-1/2 z-50 animate-bounce">
@@ -375,31 +370,44 @@ const GameView: React.FC = () => {
         </div>
       )}
 
-      {/* Top HUD */}
-      <div className="absolute top-4 left-1/2 -translate-x-1/2 z-20 flex gap-6 px-10 py-3 bg-slate-900/90 backdrop-blur-3xl rounded-full border border-slate-800 shadow-2xl items-center pointer-events-auto">
-        <div className="flex items-center gap-3">
-          <Medal className="w-6 h-6 text-blue-500" />
-          <div className="flex flex-col">
-            <span className="text-[9px] font-bold text-slate-600 uppercase leading-none tracking-widest">Global Rank</span>
-            <span className="text-2xl font-black text-white leading-none">{player.playerLevel}</span>
+      {/* TOP HUD + TICKER */}
+      <div className="absolute top-4 left-1/2 -translate-x-1/2 z-20 flex flex-col items-center gap-3 w-full max-w-2xl pointer-events-none">
+        
+        {/* Main Stats Bar */}
+        <div className="flex gap-6 px-10 py-3 bg-slate-900/90 backdrop-blur-3xl rounded-full border border-slate-800 shadow-2xl items-center pointer-events-auto">
+          <div className="flex items-center gap-3">
+            <Medal className="w-6 h-6 text-blue-500" />
+            <div className="flex flex-col">
+              <span className="text-[9px] font-bold text-slate-600 uppercase leading-none tracking-widest">Global Rank</span>
+              <span className="text-2xl font-black text-white leading-none">{player.playerLevel}</span>
+            </div>
+          </div>
+          <div className="w-px h-10 bg-slate-800 mx-1"></div>
+          <div className="flex items-center gap-3">
+            <Coins className="w-6 h-6 text-amber-500" />
+            <div className="flex flex-col">
+              <span className="text-[9px] font-bold text-slate-600 uppercase leading-none tracking-widest">Credits</span>
+              <span className="text-2xl font-black text-white leading-none">{player.coins}</span>
+            </div>
+          </div>
+          <div className="w-px h-10 bg-slate-800 mx-1"></div>
+          <div className="flex items-center gap-3">
+            <Footprints className={`w-6 h-6 ${isMoving ? 'text-slate-500 animate-pulse' : 'text-emerald-500'}`} />
+            <div className="flex flex-col">
+              <span className="text-[9px] font-bold text-slate-600 uppercase leading-none tracking-widest">Moves</span>
+              <span className="text-2xl font-black text-white leading-none">{player.moves}</span>
+            </div>
           </div>
         </div>
-        <div className="w-px h-10 bg-slate-800 mx-1"></div>
-        <div className="flex items-center gap-3">
-          <Coins className="w-6 h-6 text-amber-500" />
-          <div className="flex flex-col">
-            <span className="text-[9px] font-bold text-slate-600 uppercase leading-none tracking-widest">Credits</span>
-            <span className="text-2xl font-black text-white leading-none">{player.coins}</span>
+
+        {/* Ticker / Event Line */}
+        {messageLog.length > 0 && (
+          <div key={messageLog[0]} className="animate-[fade-in-up_0.3s_ease-out] bg-black/60 backdrop-blur-md px-6 py-1.5 rounded-full border border-slate-800/50 text-[10px] font-mono text-cyan-400/80 uppercase tracking-widest shadow-lg flex items-center gap-2">
+            <Activity className="w-3 h-3 text-cyan-500 animate-pulse" />
+            {messageLog[0]}
           </div>
-        </div>
-        <div className="w-px h-10 bg-slate-800 mx-1"></div>
-        <div className="flex items-center gap-3">
-          <Footprints className={`w-6 h-6 ${isMoving ? 'text-slate-500 animate-pulse' : 'text-emerald-500'}`} />
-          <div className="flex flex-col">
-            <span className="text-[9px] font-bold text-slate-600 uppercase leading-none tracking-widest">Moves</span>
-            <span className="text-2xl font-black text-white leading-none">{player.moves}</span>
-          </div>
-        </div>
+        )}
+
       </div>
 
       {/* Floating Control HUD */}
@@ -446,7 +454,13 @@ const GameView: React.FC = () => {
       <div className="absolute top-0 left-0 bottom-0 w-80 bg-slate-900/95 backdrop-blur-xl border-r border-slate-800 flex flex-col shadow-2xl z-10 pointer-events-auto">
         <div className="p-8 border-b border-slate-800 bg-black/40 text-center">
           <h1 className="text-4xl font-black text-amber-500 uppercase italic tracking-tighter drop-shadow-[0_0_15px_rgba(245,158,11,0.4)]">HexQuest</h1>
-          <p className="text-[10px] text-slate-500 font-mono tracking-[0.3em] uppercase mt-2 opacity-50">Operational Hub</p>
+          
+          <button 
+            onClick={() => setShowExitConfirmation(true)}
+            className="mt-4 w-full flex items-center justify-center gap-2 px-4 py-3 bg-slate-800 hover:bg-slate-700 rounded-xl border border-slate-700 text-slate-300 hover:text-white transition-colors text-xs font-bold uppercase tracking-wider shadow-lg"
+          >
+            <Menu className="w-4 h-4" /> Game Menu
+          </button>
         </div>
 
         <div className="p-5 space-y-5 overflow-y-auto flex-1 no-scrollbar pt-4">
@@ -524,12 +538,6 @@ const GameView: React.FC = () => {
               </div>
             </div>
           )}
-        </div>
-
-        {/* Telemetry Log */}
-        <div className="h-56 bg-black/80 p-6 overflow-y-auto font-mono text-[10px] text-slate-500 border-t border-slate-800/60">
-          <div className="flex items-center gap-2 mb-4 text-slate-700 font-black uppercase tracking-[0.2em] border-b border-slate-800/40 pb-2">Diagnostic Telemetry</div>
-          {messageLog.map((m, i) => <div key={i} className="border-l-2 border-slate-800 pl-4 py-1.5 mb-3 hover:text-slate-300 transition-colors leading-relaxed">{m}</div>)}
         </div>
       </div>
     </div>

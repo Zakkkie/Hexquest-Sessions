@@ -65,6 +65,15 @@ export interface WinCondition {
   label: string;
 }
 
+export interface LeaderboardEntry {
+  nickname: string;
+  avatarColor: string;
+  avatarIcon: string;
+  maxCoins: number;
+  maxLevel: number;
+  timestamp: number;
+}
+
 export interface GameState {
   // UI State
   uiState: UIState;
@@ -85,6 +94,7 @@ export interface GameState {
   isBotGrowing: boolean;
   toast: ToastMessage | null;
   
-  // Session Persistence flag
+  // Global Data
+  leaderboard: LeaderboardEntry[];
   hasActiveSession: boolean;
 }

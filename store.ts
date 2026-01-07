@@ -1,6 +1,6 @@
 
 import { create } from 'zustand';
-import { GameState, Entity, Hex, EntityType, UserProfile, UIState, WinCondition } from './types.ts';
+import { GameState, Entity, Hex, EntityType, UserProfile, UIState, WinCondition, LeaderboardEntry } from './types.ts';
 import { 
   INITIAL_MOVES, UPGRADE_LOCK_QUEUE_SIZE, EXCHANGE_RATE_COINS_PER_MOVE, 
   BOT_ACTION_INTERVAL_MS, SECONDS_PER_LEVEL_UNIT 
@@ -10,8 +10,44 @@ import {
   calculateReward, calculateBotMove, findPath 
 } from './services/hexUtils.ts';
 
-// --- MOCK DATABASE (In-Memory) ---
+// --- MOCK DATABASE (In-Memory, persists while app is open) ---
 const MOCK_USER_DB: Record<string, { password: string; avatarColor: string; avatarIcon: string }> = {};
+
+// Initial seeded leaderboard
+let MOCK_LEADERBOARD: LeaderboardEntry[] = [
+  { nickname: 'SENTINEL_AI', avatarColor: '#ef4444', avatarIcon: 'bot', maxCoins: 2500, maxLevel: 12, timestamp: Date.now() - 100000 },
+  { nickname: 'Vanguard', avatarColor: '#3b82f6', avatarIcon: 'shield', maxCoins: 1200, maxLevel: 8, timestamp: Date.now() - 200000 },
+];
+
+const updateLeaderboard = (nickname: string, avatarColor: string, avatarIcon: string, coins: number, level: number) => {
+  const existingIndex = MOCK_LEADERBOARD.findIndex(e => e.nickname === nickname);
+  
+  if (existingIndex >= 0) {
+    // Only update if score is better (using Coins as primary metric for now, or just max both)
+    const entry = MOCK_LEADERBOARD[existingIndex];
+    if (coins >= entry.maxCoins || level >= entry.maxLevel) {
+      MOCK_LEADERBOARD[existingIndex] = {
+        ...entry,
+        maxCoins: Math.max(entry.maxCoins, coins),
+        maxLevel: Math.max(entry.maxLevel, level),
+        avatarColor, // Update visual in case they changed it
+        avatarIcon,
+        timestamp: Date.now()
+      };
+    }
+  } else {
+    MOCK_LEADERBOARD.push({
+      nickname,
+      avatarColor,
+      avatarIcon,
+      maxCoins: coins,
+      maxLevel: level,
+      timestamp: Date.now()
+    });
+  }
+  // Sort by Coins descending
+  MOCK_LEADERBOARD.sort((a, b) => b.maxCoins - a.maxCoins);
+};
 
 interface AuthResponse {
   success: boolean;
@@ -93,7 +129,8 @@ const generateInitialGameData = (winCondition: WinCondition | null) => {
     isPlayerGrowing: false,
     isBotGrowing: false,
     lastBotActionTime: Date.now(),
-    toast: null
+    toast: null,
+    leaderboard: [...MOCK_LEADERBOARD] // Hydrate from DB
   };
 };
 
@@ -106,7 +143,7 @@ export const useGameStore = create<GameStore>((set, get) => {
     hasActiveSession: false,
     ...initialGameData,
     
-    setUIState: (uiState) => set({ uiState }),
+    setUIState: (uiState) => set({ uiState, leaderboard: [...MOCK_LEADERBOARD] }), // Refresh LB on view switch
 
     loginAsGuest: (nickname, avatarColor, avatarIcon) => set({
       user: {
@@ -133,6 +170,12 @@ export const useGameStore = create<GameStore>((set, get) => {
     },
 
     logout: () => {
+      // Save progress before logout
+      const state = get();
+      if (state.hasActiveSession && state.user) {
+        updateLeaderboard(state.user.nickname, state.user.avatarColor, state.user.avatarIcon, state.player.totalCoinsEarned, state.player.playerLevel);
+      }
+
       const freshState = generateInitialGameData(null);
       set({ ...freshState, user: null, uiState: 'MENU', hasActiveSession: false, gameStatus: 'GAME_OVER' });
     },
@@ -144,13 +187,21 @@ export const useGameStore = create<GameStore>((set, get) => {
       uiState: 'GAME'
     })),
 
-    abandonSession: () => set((state) => ({
-      ...generateInitialGameData(null),
-      user: state.user,
-      uiState: 'MENU',
-      hasActiveSession: false, 
-      gameStatus: 'GAME_OVER'
-    })),
+    abandonSession: () => set((state) => {
+      // Save stats on abandon
+      if (state.user) {
+        updateLeaderboard(state.user.nickname, state.user.avatarColor, state.user.avatarIcon, state.player.totalCoinsEarned, state.player.playerLevel);
+      }
+      
+      return {
+        ...generateInitialGameData(null),
+        user: state.user,
+        uiState: 'MENU',
+        hasActiveSession: false, 
+        gameStatus: 'GAME_OVER',
+        leaderboard: [...MOCK_LEADERBOARD]
+      };
+    }),
 
     showToast: (message, type) => set({ toast: { message, type, timestamp: Date.now() } }),
     hideToast: () => set({ toast: null }),
@@ -233,6 +284,7 @@ export const useGameStore = create<GameStore>((set, get) => {
       let lastBotActionTime = state.lastBotActionTime;
       let newGameStatus: GameState['gameStatus'] = state.gameStatus;
 
+      // 1. Process Growth (Player & Bot)
       const processGrowth = (entity: Entity, isGrowing: boolean): { entity: Entity, isGrowing: boolean, logs: string[] } => {
         if (!isGrowing || entity.movementQueue.length > 0) return { entity, isGrowing: false, logs: [] };
         const key = getHexKey(entity.q, entity.r);
@@ -250,14 +302,22 @@ export const useGameStore = create<GameStore>((set, get) => {
            const newHex = { ...hex, currentLevel: targetLevel, progress: 0 };
            if (targetLevel > hex.maxLevel) {
               if (targetLevel === 1) {
+                // Expansion: Add to cycle queue
                 if (updatedEntity.recentUpgrades.length < UPGRADE_LOCK_QUEUE_SIZE) {
                   updatedEntity.recentUpgrades = [...updatedEntity.recentUpgrades, hex.id];
-                  currentLogs.push(`Sector L1 Acquired.`);
+                  if (updatedEntity.type === 'PLAYER') currentLogs.push(`Sector L1 Acquired.`);
+                } else {
+                   // Cycle queue, remove oldest
+                   const newQueue = [...updatedEntity.recentUpgrades];
+                   newQueue.shift(); 
+                   newQueue.push(hex.id);
+                   updatedEntity.recentUpgrades = newQueue;
                 }
               } else {
+                // Major Upgrade: Clear Queue (Reset Cycle)
                 updatedEntity.recentUpgrades = [];
                 finalCoins = targetLevel * targetLevel;
-                currentLogs.push(`RECORD BREAK L${targetLevel}! +${finalCoins}©`);
+                if (updatedEntity.type === 'PLAYER') currentLogs.push(`RECORD BREAK L${targetLevel}! +${finalCoins}©`);
               }
               newHex.maxLevel = targetLevel;
               updatedEntity.playerLevel = Math.max(updatedEntity.playerLevel, targetLevel);
@@ -281,46 +341,102 @@ export const useGameStore = create<GameStore>((set, get) => {
       const bRes = processGrowth(newBot, isBotGrowing);
       newBot = bRes.entity;
       isBotGrowing = bRes.isGrowing;
-      logs = [...bRes.logs, ...logs];
+      
+      // 2. Process Bot AI & Movement
+      // If bot is not growing, it should be moving or deciding to move.
+      if (!isBotGrowing) {
+        // Is there a move queue?
+        if (newBot.movementQueue.length > 0) {
+           // Execute next step in queue (1 step per tick to mimic travel time)
+           const nextStep = newBot.movementQueue.shift()!;
+           const currentBotKey = getHexKey(newBot.q, newBot.r);
+           const nextHexKey = getHexKey(nextStep.q, nextStep.r);
+           const nextHex = newGrid[nextHexKey];
+           
+           // Calculate cost
+           const moveCost = (nextHex && nextHex.maxLevel >= 2) ? nextHex.maxLevel : 1;
+           
+           // Can afford?
+           let canMove = false;
+           if (newBot.moves >= moveCost) {
+             newBot.moves -= moveCost;
+             canMove = true;
+           } else {
+             // Smart spending: Use remaining moves + coins
+             const deficit = Math.max(0, moveCost - newBot.moves);
+             const coinsNeeded = deficit * EXCHANGE_RATE_COINS_PER_MOVE;
+             
+             if (newBot.coins >= coinsNeeded) {
+               newBot.coins -= coinsNeeded;
+               newBot.moves = 0; // Moves exhausted
+               canMove = true;
+             }
+           }
 
-      if (!isBotGrowing && now - lastBotActionTime > BOT_ACTION_INTERVAL_MS) {
-        const bKey = getHexKey(newBot.q, newBot.r);
-        const bHex = newGrid[bKey];
-        if (bHex && checkGrowthCondition(bHex, newBot).canGrow) {
-           isBotGrowing = true;
-           lastBotActionTime = now;
+           if (canMove) {
+             // Leave current hex (reset currentLevel logic)
+             if (newGrid[currentBotKey]) {
+                newGrid[currentBotKey] = { ...newGrid[currentBotKey], currentLevel: 0, progress: 0 };
+             }
+             
+             newBot.q = nextStep.q;
+             newBot.r = nextStep.r;
+             
+             // Reveal neighbors
+             getNeighbors(nextStep.q, nextStep.r).concat(nextStep).forEach(n => {
+                const k = getHexKey(n.q, n.r);
+                if (!newGrid[k]) newGrid[k] = createInitialHex(n.q, n.r, 0);
+             });
+           } else {
+             // Stuck? Clear queue and wait (recharge via next growth)
+             newBot.movementQueue = [];
+           }
         } else {
-           const target = calculateBotMove(newBot, newGrid, { q: newPlayer.q, r: newPlayer.r });
-           if (target) {
-              const targetHex = newGrid[getHexKey(target.q, target.r)];
-              const moveCost = (targetHex && targetHex.maxLevel >= 2) ? targetHex.maxLevel : 1;
-              
-              if (newBot.moves >= moveCost) {
-                if (bHex) newGrid[bKey] = { ...bHex, currentLevel: 0, progress: 0 };
-                newBot.q = target.q; 
-                newBot.r = target.r; 
-                newBot.moves -= moveCost;
-                getNeighbors(target.q, target.r).concat(target).forEach(n => {
-                  const k = getHexKey(n.q, n.r);
-                  if (!newGrid[k]) newGrid[k] = createInitialHex(n.q, n.r, 0);
-                });
-              } else if (newBot.coins >= EXCHANGE_RATE_COINS_PER_MOVE * moveCost) {
-                newBot.coins -= EXCHANGE_RATE_COINS_PER_MOVE * moveCost;
-                newBot.moves += moveCost;
+           // Queue empty. Check if we should grow current tile?
+           const bKey = getHexKey(newBot.q, newBot.r);
+           const bHex = newGrid[bKey];
+           const condition = bHex ? checkGrowthCondition(bHex, newBot) : { canGrow: false };
+
+           if (bHex && condition.canGrow) {
+              isBotGrowing = true;
+           } else {
+              // Can't grow. Find new target.
+              const path = calculateBotMove(newBot, newGrid, { q: newPlayer.q, r: newPlayer.r }, state.winCondition);
+              if (path && path.length > 0) {
+                 newBot.movementQueue = path;
               }
            }
-           lastBotActionTime = now;
         }
       }
 
-      if (state.winCondition) {
+      // --- VICTORY CHECK ---
+      if (state.winCondition && newGameStatus === 'PLAYING') {
+        let playerWins = false;
         if ((state.winCondition.type === 'WEALTH' && newPlayer.totalCoinsEarned >= state.winCondition.target) || 
             (state.winCondition.type === 'DOMINATION' && newPlayer.playerLevel >= state.winCondition.target)) {
+           playerWins = true;
+        }
+
+        if (playerWins) {
            newGameStatus = 'VICTORY';
+           if (state.user) {
+             updateLeaderboard(state.user.nickname, state.user.avatarColor, state.user.avatarIcon, newPlayer.totalCoinsEarned, newPlayer.playerLevel);
+           }
+           updateLeaderboard('SENTINEL_AI', '#ef4444', 'bot', newBot.totalCoinsEarned, newBot.playerLevel);
         }
       }
 
-      return { grid: newGrid, player: newPlayer, bot: newBot, messageLog: logs.slice(0, 50), isPlayerGrowing, isBotGrowing, lastBotActionTime, gameStatus: newGameStatus };
+      return { 
+        grid: newGrid, 
+        player: newPlayer, 
+        bot: newBot, 
+        messageLog: logs.slice(0, 50), 
+        isPlayerGrowing, 
+        isBotGrowing, 
+        lastBotActionTime, 
+        gameStatus: newGameStatus,
+        leaderboard: [...MOCK_LEADERBOARD] // Sync Store with "DB"
+      };
     })
   };
 });

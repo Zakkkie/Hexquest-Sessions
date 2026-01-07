@@ -99,8 +99,8 @@ const HexagonVisual: React.FC<HexagonVisualProps> = React.memo(({ hex, isPlayerN
         perfectDrawEnabled={false} // Optimization
       />
 
-      {/* Lock Overlay */}
-      {isLocked && (
+      {/* Lock Overlay - Use Ternary, NOT && */}
+      {isLocked ? (
         <Group listening={false}>
           <RegularPolygon
             sides={6}
@@ -121,7 +121,7 @@ const HexagonVisual: React.FC<HexagonVisualProps> = React.memo(({ hex, isPlayerN
             shadowBlur={2}
           />
         </Group>
-      )}
+      ) : null}
 
       {/* Level Text (Hide if locked to reduce clutter, or keep it?) -> Keep it so they know what rank is needed */}
       <Text
@@ -139,8 +139,8 @@ const HexagonVisual: React.FC<HexagonVisualProps> = React.memo(({ hex, isPlayerN
         perfectDrawEnabled={false}
       />
 
-      {/* Progress Bar (Canvas) - Only show if not locked */}
-      {isGrowing && !isLocked && (
+      {/* Progress Bar (Canvas) - Only show if not locked - Use Ternary, NOT && */}
+      {(isGrowing && !isLocked) ? (
         <Group y={14} listening={false}>
           <Rect
             x={-12}
@@ -159,7 +159,7 @@ const HexagonVisual: React.FC<HexagonVisualProps> = React.memo(({ hex, isPlayerN
             perfectDrawEnabled={false}
           />
         </Group>
-      )}
+      ) : null}
     </Group>
   );
 });

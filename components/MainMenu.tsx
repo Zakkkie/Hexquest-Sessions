@@ -186,7 +186,7 @@ const MainMenu: React.FC = () => {
       <div className="flex flex-col gap-6 w-96 z-10">
         
         {/* Title */}
-        <div className="text-center mb-8">
+        <div className="text-center mb-6"> {/* Reduced from mb-8 */}
           <h1 className="text-6xl font-black text-transparent bg-clip-text bg-gradient-to-br from-amber-400 to-amber-600 italic tracking-tighter drop-shadow-[0_0_25px_rgba(245,158,11,0.4)]">
             HexQuest
           </h1>

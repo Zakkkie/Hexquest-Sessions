@@ -1,6 +1,6 @@
 
-import { Coordinates, Hex, Entity, EntityType } from '../types';
-import { SECONDS_PER_LEVEL_UNIT, UPGRADE_LOCK_QUEUE_SIZE, HEX_SIZE } from '../constants';
+import { Coordinates, Hex, Entity, EntityType, WinCondition } from '../types';
+import { SECONDS_PER_LEVEL_UNIT, UPGRADE_LOCK_QUEUE_SIZE, HEX_SIZE, EXCHANGE_RATE_COINS_PER_MOVE } from '../constants';
 
 // --- Coordinate Math ---
 
@@ -140,34 +140,112 @@ export const findPath = (
   return null;
 };
 
+/**
+ * Hyper-Aggressive Leveling Strategy
+ * The bot's SOLE GOAL is to increase playerLevel.
+ */
 export const calculateBotMove = (
   bot: Entity, 
   grid: Record<string, Hex>,
-  opponent: Coordinates
-): Coordinates | null => {
-  const neighbors = getNeighbors(bot.q, bot.r);
+  opponent: Coordinates,
+  winCondition: WinCondition | null // Ignored, we always play for Rank now
+): Coordinates[] | null => {
+  const needsToFillQueue = bot.recentUpgrades.length < UPGRADE_LOCK_QUEUE_SIZE;
+  const recentlyUpgradedSet = new Set(bot.recentUpgrades);
+  const botHexKey = getHexKey(bot.q, bot.r);
   
-  const validNeighbors = neighbors.filter(n => {
-    if (n.q === opponent.q && n.r === opponent.r) return false;
-    const key = getHexKey(n.q, n.r);
-    const hex = grid[key];
-    if (hex && hex.maxLevel > bot.playerLevel) return false;
-    return true;
-  });
-  
-  const scoredMoves = validNeighbors.map(coord => {
-    const key = getHexKey(coord.q, coord.r);
-    const hex = grid[key];
-    const dist = getDistanceToCenter(coord.q, coord.r);
-    const isNew = !hex || hex.maxLevel === 0;
+  let bestTarget: Coordinates | null = null;
+  let maxScore = -Infinity;
+
+  const allHexKeys = Object.keys(grid);
+
+  // Calculate total potential range based on Moves + Coins
+  const totalPotentialMoves = bot.moves + Math.floor(bot.coins / EXCHANGE_RATE_COINS_PER_MOVE);
+
+  for (const key of allHexKeys) {
+    if (key === botHexKey) continue;
     
+    const targetHex = grid[key];
+    const targetCoord = { q: targetHex.q, r: targetHex.r };
+    
+    // Safety check: Don't target the player
+    if (targetCoord.q === opponent.q && targetCoord.r === opponent.r) continue;
+
+    // Safety check: Cannot enter hexes above rank
+    if (targetHex.maxLevel > bot.playerLevel) continue;
+
+    const dist = cubeDistance(bot, targetCoord);
+    
+    // STRICT CHECK: If we literally cannot afford to get there, ignore it.
+    if (dist > totalPotentialMoves + 1) continue; 
+    
+    // Optimize performance
+    if (dist > 10) continue;
+
     let score = 0;
-    if (isNew) score += 100;
-    score -= dist * 2; 
+    
+    // Base distance penalty
+    score -= dist * 10;
 
-    return { coord, score };
-  });
+    const isLockedByQueue = recentlyUpgradedSet.has(key);
 
-  scoredMoves.sort((a, b) => b.score - a.score);
-  return scoredMoves.length > 0 ? scoredMoves[0].coord : null;
+    // --- STRATEGY CORE ---
+
+    if (needsToFillQueue) {
+      // PHASE 1: REFUELING
+      // We are blocked from upgrading high level tiles.
+      // Goal: Touch 3 unique tiles as fast/cheap as possible.
+      
+      if (isLockedByQueue) {
+        score = -Infinity; // Can't help us
+      } else {
+        if (targetHex.maxLevel === 0) {
+           // Best case: Free L0 land. Very fast.
+           score += 5000; 
+        } else if (targetHex.maxLevel === 1) {
+           // Good case: Cheap L1.
+           score += 4000; 
+        } else {
+           // Bad case: Taking an L5 tile just to fill a queue slot is a massive waste of moves/coins.
+           // We punish this heavily.
+           score -= 1000; 
+        }
+      }
+    } else {
+      // PHASE 2: LIMIT BREAK (The Sole Goal)
+      // The queue is full. We are ready to upgrade a Major Hex.
+      
+      if (targetHex.maxLevel === bot.playerLevel) {
+        // [JACKPOT]
+        // This tile is at our current max. Growing it pushes it to Level + 1.
+        // This immediately increases our global rank.
+        score += 1000000; 
+      } else if (targetHex.maxLevel === bot.playerLevel - 1) {
+        // [STAGING]
+        // We can't find a limit breaker, so we prepare a tile to BECOME a limit breaker next cycle.
+        score += 500000;
+      } else {
+        // [NOISE]
+        // This tile is too low level to help us rank up. Ignore it.
+        score = -Infinity;
+      }
+    }
+
+    if (score > maxScore) {
+      maxScore = score;
+      bestTarget = targetCoord;
+    }
+  }
+
+  if (bestTarget) {
+    return findPath(
+      { q: bot.q, r: bot.r }, 
+      bestTarget, 
+      grid, 
+      bot.playerLevel, 
+      [opponent]
+    );
+  }
+
+  return null;
 };

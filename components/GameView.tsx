@@ -7,8 +7,8 @@ import { getHexKey, getNeighbors, checkGrowthCondition, getSecondsToGrow, hexToP
 import Hexagon from './Hexagon.tsx'; 
 import Unit from './Unit.tsx';
 import { 
-  AlertCircle, Pause, Play, Trophy, Coins, Footprints, Zap, AlertTriangle, Menu, LogOut,
-  User, Shield, Ghost, Bot, Crown, Target, X, TrendingUp
+  AlertCircle, Pause, Play, Trophy, Coins, Footprints, AlertTriangle, Menu, LogOut,
+  Crown, Target, TrendingUp, ChevronDown, ChevronUp, Shield
 } from 'lucide-react';
 import { UPGRADE_LOCK_QUEUE_SIZE, EXCHANGE_RATE_COINS_PER_MOVE, HEX_SIZE } from '../constants.ts';
 import { Hex } from '../types.ts';
@@ -32,6 +32,8 @@ const GameView: React.FC = () => {
 
   // UI Local State
   const [showExitConfirmation, setShowExitConfirmation] = useState(false);
+  // Default rankings to closed on mobile (< 768px), open on desktop
+  const [isRankingsOpen, setIsRankingsOpen] = useState(window.innerWidth >= 768);
   const logsContainerRef = useRef<HTMLDivElement>(null);
   
   const { 
@@ -214,9 +216,9 @@ const GameView: React.FC = () => {
   }, [player.q, player.r, player.moves, player.coins, player.playerLevel, playerNeighbors, grid, bots, isMoving]);
 
   // Common styles for HUD stats
-  const statLabelStyle = "text-[9px] font-bold text-slate-500 uppercase leading-none tracking-widest mb-1";
-  const statValueStyle = "text-xl md:text-2xl font-black text-white leading-none";
-  const statIconStyle = "w-5 h-5 md:w-6 md:h-6";
+  const statLabelStyle = "text-[8px] md:text-[9px] font-bold text-slate-500 uppercase leading-none tracking-widest mb-0.5 md:mb-1 whitespace-nowrap";
+  const statValueStyle = "text-lg md:text-2xl font-black text-white leading-none whitespace-nowrap";
+  const statIconStyle = "w-4 h-4 md:w-6 md:h-6 shrink-0";
 
   return (
     <div className="relative h-full w-full">
@@ -274,108 +276,148 @@ const GameView: React.FC = () => {
         </Stage>
       </div>
 
-      {/* --- HUD: TOP CENTER (Stats) --- */}
-      <div className="absolute top-2 md:top-4 left-1/2 -translate-x-1/2 z-30 flex gap-4 md:gap-8 px-4 md:px-8 py-2 md:py-3 bg-slate-900/90 backdrop-blur-3xl rounded-3xl border border-slate-800 shadow-2xl items-center pointer-events-auto max-w-[95%] overflow-hidden">
+      {/* --- HUD: TOP CENTER (Stats & Objective) --- */}
+      {/* Adjusted: Top-1 for minimal margin, gap-0.5 for tight stacking */}
+      <div className="absolute top-1 md:top-4 left-1/2 -translate-x-1/2 z-30 flex flex-col items-center gap-0.5 w-full max-w-[95%] pointer-events-none">
           
-          {/* Level */}
-          <div className="flex items-center gap-2 md:gap-3 min-w-[60px] md:min-w-[80px]">
-             <Crown className={`${statIconStyle} text-indigo-400`} />
-             <div className="flex flex-col">
+          {/* Row 1: Core Stats (Pointer events auto for tooltips if we had them) */}
+          <div className="flex gap-4 md:gap-8 px-4 md:px-8 py-1 md:py-3 bg-slate-900/90 backdrop-blur-3xl rounded-3xl border border-slate-800 shadow-2xl items-center pointer-events-auto overflow-x-auto no-scrollbar max-w-full">
+
+            {/* Level */}
+            <div className="flex flex-col items-center justify-center min-w-[50px] md:min-w-[70px] shrink-0">
                <span className={statLabelStyle}>Level</span>
-               <span className={statValueStyle}>{player.playerLevel}</span>
-             </div>
-          </div>
+               <div className="flex items-center gap-1.5 md:gap-2">
+                 <Crown className={`${statIconStyle} text-indigo-400`} />
+                 <span className={statValueStyle}>{player.playerLevel}</span>
+               </div>
+            </div>
 
-          <div className="w-px h-6 md:h-8 bg-slate-800 hidden md:block"></div>
+            <div className="w-px h-6 md:h-8 bg-slate-800 shrink-0"></div>
 
-          {/* Upgrade Cycle (Hidden on small mobile) */}
-          <div className="hidden md:flex items-center gap-3 min-w-[90px]">
-             <TrendingUp className={`${statIconStyle} text-emerald-500`} />
-             <div className="flex flex-col">
-                <span className={statLabelStyle}>Upgrade</span>
-                <div className="flex gap-1 h-6 items-center"> 
-                    {Array.from({length: UPGRADE_LOCK_QUEUE_SIZE}).map((_, i) => (
-                    <div 
-                        key={i} 
-                        className={`w-3 h-5 rounded-sm transition-all ${
-                            player.recentUpgrades.length > i 
-                            ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]' 
-                            : 'bg-slate-700/50'
-                        }`} 
-                    />
-                    ))}
-                </div>
-             </div>
-          </div>
+            {/* Upgrade Cycle */}
+            <div className="flex flex-col items-center justify-center min-w-[70px] shrink-0">
+               <span className={statLabelStyle}>Upgrade</span>
+               <div className="flex items-center gap-1.5 md:gap-2">
+                  <TrendingUp className={`${statIconStyle} text-emerald-500`} />
+                  <div className="flex gap-0.5 md:gap-1 h-4 md:h-5 items-center"> 
+                      {Array.from({length: UPGRADE_LOCK_QUEUE_SIZE}).map((_, i) => (
+                      <div 
+                          key={i} 
+                          className={`w-1.5 h-3 md:w-3 md:h-5 rounded-sm transition-all ${
+                              player.recentUpgrades.length > i 
+                              ? 'bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.8)]' 
+                              : 'bg-slate-700/50'
+                          }`} 
+                      />
+                      ))}
+                  </div>
+               </div>
+            </div>
 
-          <div className="w-px h-6 md:h-8 bg-slate-800"></div>
+            <div className="w-px h-6 md:h-8 bg-slate-800 shrink-0"></div>
 
-          {/* Credits */}
-          <div className="flex items-center gap-2 md:gap-3 min-w-[60px] md:min-w-[80px]">
-            <Coins className={`${statIconStyle} text-amber-500`} />
-            <div className="flex flex-col">
+            {/* Credits */}
+            <div className="flex flex-col items-center justify-center min-w-[50px] md:min-w-[70px] shrink-0">
               <span className={statLabelStyle}>Credits</span>
-              <span className={statValueStyle}>{player.coins}</span>
+              <div className="flex items-center gap-1.5 md:gap-2">
+                <Coins className={`${statIconStyle} text-amber-500`} />
+                <span className={statValueStyle}>{player.coins}</span>
+              </div>
             </div>
-          </div>
 
-          <div className="w-px h-6 md:h-8 bg-slate-800"></div>
+            <div className="w-px h-6 md:h-8 bg-slate-800 shrink-0"></div>
 
-          {/* Moves */}
-          <div className="flex items-center gap-2 md:gap-3 min-w-[60px] md:min-w-[80px]">
-            <Footprints className={`${statIconStyle} ${isMoving ? 'text-slate-500 animate-pulse' : 'text-blue-500'}`} />
-            <div className="flex flex-col">
+            {/* Moves */}
+            <div className="flex flex-col items-center justify-center min-w-[50px] md:min-w-[70px] shrink-0">
               <span className={statLabelStyle}>Moves</span>
-              <span className={statValueStyle}>{player.moves}</span>
+              <div className="flex items-center gap-1.5 md:gap-2">
+                <Footprints className={`${statIconStyle} ${isMoving ? 'text-slate-500 animate-pulse' : 'text-blue-500'}`} />
+                <span className={statValueStyle}>{player.moves}</span>
+              </div>
             </div>
           </div>
+
+          {/* Row 2: Objective Text */}
+          {winCondition && (
+            <div className="bg-slate-900/80 backdrop-blur-md px-4 py-1 rounded-full border border-slate-700/50 flex items-center gap-2 shadow-lg pointer-events-auto">
+               <Target className="w-3 h-3 text-cyan-400" />
+               <span className="text-[10px] md:text-xs font-mono text-cyan-100 uppercase tracking-wider whitespace-nowrap">
+                  Objective: <span className="text-white font-bold">{winCondition.label}</span>
+               </span>
+            </div>
+          )}
       </div>
 
-      {/* --- HUD: RIGHT SIDE (Rankings + Logs) --- */}
+      {/* --- HUD: RIGHT SIDE (Rankings + Menu) --- */}
+      {/* Moved to top-20 (80px) to sit just below the header complex */}
       <div className="absolute top-20 md:top-4 right-2 md:right-4 z-20 flex flex-col gap-2 pointer-events-auto items-end">
         
-        {/* Compact Rankings Widget (Collapsible logic or simple smaller on mobile) */}
-        <div className="bg-slate-900/90 backdrop-blur-md border border-slate-700 rounded-2xl p-2 md:p-3 w-40 md:w-64 shadow-xl scale-90 md:scale-100 origin-top-right">
-            <div className="flex items-center gap-2 mb-2 px-1">
-                <Trophy className="w-3 h-3 md:w-4 md:h-4 text-amber-500" />
-                <span className="text-[9px] md:text-[10px] font-bold text-slate-400 uppercase tracking-wider">Live Rankings</span>
-            </div>
-            <div className="space-y-1">
-                {[player, ...bots].sort((a, b) => (b.totalCoinsEarned || 0) - (a.totalCoinsEarned || 0)).map((e, idx) => {
-                    const isPlayer = e.type === 'PLAYER';
-                    // Use stored color if available, otherwise fallback
-                    const color = isPlayer ? (user?.avatarColor || '#3b82f6') : (e.avatarColor || '#ef4444');
-                    return (
-                        <div key={e.id} className="flex justify-between items-center bg-black/40 rounded-lg p-1.5 md:p-2">
-                           <div className="flex items-center gap-2 overflow-hidden">
-                               <div className="w-1.5 h-1.5 md:w-2 md:h-2 rounded-full shrink-0" style={{ backgroundColor: color }} />
-                               <div className="flex flex-col truncate">
-                                  <span className={`text-[10px] md:text-xs font-bold truncate ${isPlayer ? 'text-white' : 'text-red-300'}`}>
-                                      {isPlayer ? (user?.nickname || 'YOU') : (e.id.toUpperCase())}
-                                  </span>
-                                  {/* UPGRADE POINTS VISUALIZATION */}
-                                  <div className="flex gap-0.5 mt-0.5">
-                                      {Array.from({length: UPGRADE_LOCK_QUEUE_SIZE}).map((_, i) => (
-                                          <div 
-                                            key={i} 
-                                            className={`w-1 h-1 md:w-1.5 md:h-1.5 rounded-full ${
-                                                e.recentUpgrades.length > i 
-                                                ? (isPlayer ? 'bg-emerald-500' : 'bg-red-500') 
-                                                : 'bg-slate-700'
-                                            }`} 
-                                          />
-                                      ))}
-                                  </div>
+        <div className="flex gap-2 items-start">
+            {/* COLLAPSIBLE Rankings Widget */}
+            <div 
+                onClick={() => setIsRankingsOpen(!isRankingsOpen)}
+                className={`
+                    bg-slate-900/90 backdrop-blur-md border border-slate-700 rounded-2xl shadow-xl 
+                    w-44 md:w-64 origin-top-right overflow-hidden cursor-pointer transition-all duration-300 ease-in-out
+                    ${isRankingsOpen ? 'max-h-[60vh] opacity-100' : 'max-h-10 md:max-h-11 opacity-90 hover:opacity-100'}
+                `}
+            >
+                <div className="flex items-center justify-between p-2 md:p-3 h-10 md:h-11 hover:bg-white/5 transition-colors">
+                    <div className="flex items-center gap-2">
+                        <Trophy className="w-3 h-3 md:w-4 md:h-4 text-amber-500" />
+                        <span className="text-[9px] md:text-[10px] font-bold text-slate-400 uppercase tracking-wider">Live Rankings</span>
+                    </div>
+                    {isRankingsOpen 
+                        ? <ChevronUp className="w-3 h-3 md:w-4 md:h-4 text-slate-500" /> 
+                        : <ChevronDown className="w-3 h-3 md:w-4 md:h-4 text-slate-500" />
+                    }
+                </div>
+                
+                <div className={`space-y-1 p-2 md:p-3 pt-0 border-t border-slate-800/50 ${isRankingsOpen ? 'block' : 'hidden'}`}>
+                    {[player, ...bots].sort((a, b) => (b.totalCoinsEarned || 0) - (a.totalCoinsEarned || 0)).map((e, idx) => {
+                        const isPlayer = e.type === 'PLAYER';
+                        // Use stored color if available, otherwise fallback
+                        const color = isPlayer ? (user?.avatarColor || '#3b82f6') : (e.avatarColor || '#ef4444');
+                        return (
+                            <div key={e.id} className="flex justify-between items-center bg-black/40 rounded-lg p-1.5 md:p-2 hover:bg-black/60 transition-colors cursor-default" onClick={(e) => e.stopPropagation()}>
+                               <div className="flex items-center gap-2 overflow-hidden">
+                                   <div className="w-1.5 h-1.5 md:w-2 md:h-2 rounded-full shrink-0" style={{ backgroundColor: color }} />
+                                   <div className="flex flex-col truncate max-w-[80px] md:max-w-[100px]">
+                                      <span className={`text-[10px] md:text-xs font-bold truncate ${isPlayer ? 'text-white' : 'text-red-300'}`}>
+                                          {isPlayer ? (user?.nickname || 'YOU') : (e.id.toUpperCase())}
+                                      </span>
+                                      {/* UPGRADE POINTS VISUALIZATION */}
+                                      <div className="flex gap-0.5 mt-0.5">
+                                          {Array.from({length: UPGRADE_LOCK_QUEUE_SIZE}).map((_, i) => (
+                                              <div 
+                                                key={i} 
+                                                className={`w-1 h-1 md:w-1.5 md:h-1.5 rounded-full ${
+                                                    e.recentUpgrades.length > i 
+                                                    ? (isPlayer ? 'bg-emerald-500' : 'bg-red-500') 
+                                                    : 'bg-slate-700'
+                                                }`} 
+                                              />
+                                          ))}
+                                      </div>
+                                   </div>
                                </div>
-                           </div>
-                           <div className="flex items-center gap-1.5 md:gap-3 text-[9px] md:text-[10px] font-mono shrink-0">
-                               <span className="text-amber-500">{e.coins}©</span>
-                               <span className="text-indigo-400">L{e.playerLevel}</span>
-                           </div>
-                        </div>
-                    );
-                })}
+                               <div className="flex items-center gap-1.5 md:gap-3 text-[9px] md:text-[10px] font-mono shrink-0">
+                                   <span className="text-amber-500">{e.coins}©</span>
+                                   <span className="text-indigo-400">L{e.playerLevel}</span>
+                               </div>
+                            </div>
+                        );
+                    })}
+                </div>
             </div>
+
+            {/* MENU BUTTON (Relocated) */}
+            <button 
+                onClick={() => setShowExitConfirmation(true)}
+                className="h-10 w-10 md:h-11 md:w-11 bg-slate-900/90 backdrop-blur-md border border-slate-700 rounded-xl flex items-center justify-center text-slate-400 hover:text-white hover:bg-slate-800 transition-all shadow-xl active:scale-95 shrink-0"
+            >
+                <Menu className="w-5 h-5 md:w-6 md:h-6" />
+            </button>
         </div>
 
         {/* Info Logs (Hidden on Mobile) */}
@@ -394,14 +436,6 @@ const GameView: React.FC = () => {
       {/* --- HUD: BOTTOM CENTER (Actions) --- */}
       <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-30 flex flex-col items-center gap-3 w-[90%] md:w-80 pointer-events-auto">
         
-        {/* Objective Pill */}
-        {winCondition && (
-          <div className="bg-slate-900/80 backdrop-blur-md px-4 py-1.5 rounded-full border border-slate-700 flex items-center gap-2 mb-1">
-             <Target className="w-3 h-3 text-cyan-400" />
-             <span className="text-[9px] font-mono text-cyan-100 uppercase tracking-wider whitespace-nowrap">{winCondition.label}</span>
-          </div>
-        )}
-
         {/* Warning Pill */}
         {currentHex && !growthCondition.canGrow && !isPlayerGrowing && !isMoving && (
           <div className="flex gap-2 px-3 py-1.5 bg-red-950/90 backdrop-blur-md rounded-lg border border-red-500/50 shadow-lg animate-pulse">
@@ -420,7 +454,7 @@ const GameView: React.FC = () => {
               togglePlayerGrowth();
             }}
             disabled={isMoving}
-            className={`relative flex-grow h-14 rounded-xl font-black text-xs uppercase tracking-[0.15em] flex items-center justify-center overflow-hidden transition-all border
+            className={`relative flex-grow w-full h-14 rounded-xl font-black text-xs uppercase tracking-[0.15em] flex items-center justify-center overflow-hidden transition-all border
               ${!growthCondition.canGrow || isMoving 
                   ? 'bg-slate-800 border-slate-700 text-slate-500 cursor-not-allowed' 
                   : isUpgradeAction
@@ -447,16 +481,6 @@ const GameView: React.FC = () => {
                 </span>
              </div>
           </button>
-
-          {/* Menu Button (Replaces Recharge) */}
-          <button 
-             onClick={() => setShowExitConfirmation(true)}
-             className="w-16 h-14 bg-slate-800 hover:bg-slate-700 border border-slate-700 hover:border-red-500/50 rounded-xl flex flex-col items-center justify-center text-slate-400 hover:text-red-200 transition-all active:scale-95 shrink-0"
-           >
-              <Menu className="w-5 h-5 mb-1" />
-              <span className="text-[8px] font-bold uppercase tracking-widest">Menu</span>
-           </button>
-
         </div>
       </div>
 
@@ -615,12 +639,13 @@ const GameView: React.FC = () => {
         </div>
       )}
 
-      {/* POPUP TOAST MESSAGE */}
+      {/* POPUP TOAST MESSAGE - Updated Positioning & Styling */}
+      {/* Moved to bottom-24 on mobile to avoid covering top UI */}
       {toast && (
-        <div className="absolute top-24 left-1/2 -translate-x-1/2 z-50 animate-bounce w-[90%] md:w-auto">
-          <div className="bg-red-950/90 border border-red-500 text-red-100 px-6 py-3 rounded-2xl shadow-[0_0_30px_rgba(239,68,68,0.6)] backdrop-blur-md flex items-center justify-center gap-3">
-             <AlertTriangle className="w-6 h-6 text-red-500 shrink-0" />
-             <span className="text-sm font-black uppercase tracking-wider text-center">{toast.message}</span>
+        <div className="absolute bottom-24 md:bottom-auto md:top-24 left-1/2 -translate-x-1/2 z-[60] w-[90%] max-w-md pointer-events-none">
+          <div className="mx-auto bg-red-950/95 border border-red-500/50 text-red-100 px-4 py-3 rounded-2xl shadow-[0_0_30px_rgba(239,68,68,0.6)] backdrop-blur-xl flex flex-col md:flex-row items-center justify-center gap-2 md:gap-3 animate-in fade-in slide-in-from-bottom-4 md:slide-in-from-top-4 duration-300">
+             <AlertTriangle className="w-5 h-5 text-red-500 shrink-0" />
+             <span className="text-xs md:text-sm font-bold uppercase tracking-wider text-center leading-tight break-words">{toast.message}</span>
           </div>
         </div>
       )}

@@ -98,6 +98,17 @@ const GameView: React.FC = () => {
 
   const isUpgradeAction = growthButtonLabel === 'UPGRADE';
 
+  // --- CAMERA CONTROLS ---
+
+  const centerOnPlayer = useCallback(() => {
+    const { x: px, y: py } = hexToPixel(player.q, player.r);
+    setViewState(prev => ({
+      ...prev,
+      x: (dimensions.width / 2) - (px * prev.scale),
+      y: (dimensions.height / 2) - (py * prev.scale)
+    }));
+  }, [player.q, player.r, dimensions]);
+
   // Zoom Logic
   const handleWheel = useCallback((e: Konva.KonvaEventObject<WheelEvent>) => {
     e.evt.preventDefault();
@@ -404,7 +415,10 @@ const GameView: React.FC = () => {
           
           {/* Combined Growth Button with Progress Fill */}
           <button 
-            onClick={togglePlayerGrowth}
+            onClick={() => {
+              centerOnPlayer();
+              togglePlayerGrowth();
+            }}
             disabled={isMoving}
             className={`relative flex-grow h-14 rounded-xl font-black text-xs uppercase tracking-[0.15em] flex items-center justify-center overflow-hidden transition-all border
               ${!growthCondition.canGrow || isMoving 

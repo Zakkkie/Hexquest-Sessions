@@ -1,5 +1,5 @@
 
-export type HexCoord = { q: number; r: number };
+export type HexCoord = { q: number; r: number; upgrade?: boolean };
 
 export interface Hex {
   id: string;
@@ -91,7 +91,7 @@ export interface GameState {
   player: Entity;
   bot: Entity;
   currentTurn: number;
-  gameStatus: 'PLAYING' | 'GAME_OVER' | 'VICTORY';
+  gameStatus: 'PLAYING' | 'GAME_OVER' | 'VICTORY' | 'DEFEAT';
   messageLog: string[];
   lastBotActionTime: number;
   isPlayerGrowing: boolean;

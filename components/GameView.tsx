@@ -271,7 +271,7 @@ const GameView: React.FC = () => {
              <div className="flex flex-col">
                 <span className={statLabelStyle}>Upgrade</span>
                 <div className="flex gap-1 h-6 items-center"> 
-                    {[0, 1, 2].map(i => (
+                    {Array.from({length: UPGRADE_LOCK_QUEUE_SIZE}).map((_, i) => (
                     <div 
                         key={i} 
                         className={`w-3 h-5 rounded-sm transition-all ${
@@ -325,9 +325,24 @@ const GameView: React.FC = () => {
                         <div key={e.id} className="flex justify-between items-center bg-black/40 rounded-lg p-2">
                            <div className="flex items-center gap-2">
                                <div className="w-2 h-2 rounded-full" style={{ backgroundColor: color }} />
-                               <span className={`text-xs font-bold ${isPlayer ? 'text-white' : 'text-red-300'}`}>
-                                   {isPlayer ? (user?.nickname || 'YOU') : 'SENTINEL'}
-                               </span>
+                               <div className="flex flex-col">
+                                  <span className={`text-xs font-bold ${isPlayer ? 'text-white' : 'text-red-300'}`}>
+                                      {isPlayer ? (user?.nickname || 'YOU') : 'SENTINEL'}
+                                  </span>
+                                  {/* UPGRADE POINTS VISUALIZATION */}
+                                  <div className="flex gap-0.5 mt-0.5">
+                                      {Array.from({length: UPGRADE_LOCK_QUEUE_SIZE}).map((_, i) => (
+                                          <div 
+                                            key={i} 
+                                            className={`w-1.5 h-1.5 rounded-full ${
+                                                e.recentUpgrades.length > i 
+                                                ? (isPlayer ? 'bg-emerald-500' : 'bg-red-500') 
+                                                : 'bg-slate-700'
+                                            }`} 
+                                          />
+                                      ))}
+                                  </div>
+                               </div>
                            </div>
                            <div className="flex items-center gap-3 text-[10px] font-mono">
                                <span className="text-amber-500">{e.coins}©</span>
@@ -445,6 +460,42 @@ const GameView: React.FC = () => {
              <button 
                  onClick={abandonSession}
                  className="w-full py-4 bg-amber-600 hover:bg-amber-500 text-white font-bold rounded-xl shadow-lg shadow-amber-600/20 transition-all uppercase tracking-wider text-sm"
+               >
+                 Return to Command
+             </button>
+          </div>
+        </div>
+      )}
+
+      {/* DEFEAT MODAL */}
+      {gameStatus === 'DEFEAT' && (
+        <div className="absolute inset-0 z-[80] bg-black/80 backdrop-blur-md flex items-center justify-center pointer-events-auto">
+          <div className="bg-slate-900 border border-red-500/50 p-10 rounded-3xl shadow-[0_0_100px_rgba(239,68,68,0.3)] max-w-lg w-full text-center relative overflow-hidden">
+             <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-red-500 to-transparent"></div>
+             
+             <div className="mx-auto w-20 h-20 bg-red-500/20 rounded-full flex items-center justify-center mb-6 border border-red-500/50">
+               <Shield className="w-10 h-10 text-red-500" />
+             </div>
+             
+             <h2 className="text-4xl font-black text-white mb-2 uppercase tracking-tighter">Mission Failed</h2>
+             <p className="text-red-500 font-bold text-sm tracking-widest uppercase mb-8">Sentinel Victory</p>
+             
+             <div className="bg-slate-950 p-6 rounded-2xl border border-slate-800 mb-8 space-y-4">
+               <div className="flex justify-between items-center text-sm border-b border-slate-800 pb-2">
+                 <span className="text-slate-500 font-bold uppercase">Condition</span>
+                 <span className="text-white font-mono">{winCondition?.label}</span>
+               </div>
+               <div className="flex justify-between items-center text-sm">
+                 <span className="text-slate-500 font-bold uppercase">Sentinel Progress</span>
+                 <span className="text-red-500 font-mono">
+                    {winCondition?.type === 'WEALTH' ? `${bot.totalCoinsEarned} Coins` : `Level ${bot.playerLevel}`}
+                 </span>
+               </div>
+             </div>
+
+             <button 
+                 onClick={abandonSession}
+                 className="w-full py-4 bg-red-900 hover:bg-red-800 text-white font-bold rounded-xl shadow-lg shadow-red-900/20 transition-all uppercase tracking-wider text-sm"
                >
                  Return to Command
              </button>

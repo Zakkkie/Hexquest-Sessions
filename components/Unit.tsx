@@ -10,9 +10,10 @@ interface UnitProps {
   q: number;
   r: number;
   type: EntityType;
+  color?: string; // Explicit color override
 }
 
-const Unit: React.FC<UnitProps> = ({ q, r, type }) => {
+const Unit: React.FC<UnitProps> = ({ q, r, type, color }) => {
   const groupRef = useRef<Konva.Group>(null);
   const user = useGameStore(state => state.user);
   
@@ -36,27 +37,29 @@ const Unit: React.FC<UnitProps> = ({ q, r, type }) => {
   }, [x, y]);
 
   const isPlayer = type === EntityType.PLAYER;
-  const color = isPlayer ? (user?.avatarColor || '#3b82f6') : '#ef4444';
+  
+  // Priority: Prop Color -> User Avatar (if player) -> Default Red (if bot)
+  const finalColor = color || (isPlayer ? (user?.avatarColor || '#3b82f6') : '#ef4444');
 
   return (
     <Group ref={groupRef} listening={false}>
       <Circle
         radius={15}
-        fill={color}
+        fill={finalColor}
         opacity={0.3}
-        shadowColor={color}
+        shadowColor={finalColor}
         shadowBlur={10}
       />
       <Circle
         radius={8}
-        fill={color}
+        fill={finalColor}
         stroke="white"
         strokeWidth={2}
       />
       <Ring
         innerRadius={10}
         outerRadius={12}
-        stroke={color}
+        stroke={finalColor}
         strokeWidth={1}
         opacity={0.6}
         scaleX={1}

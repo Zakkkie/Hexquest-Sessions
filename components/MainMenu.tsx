@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { useGameStore } from '../store.ts';
-import { Trophy, LogOut, User, Ghost, Play, ArrowRight, Zap, Shield, UserCircle, X, LogIn, Lock, Target, Gem, Crown } from 'lucide-react';
+import { Trophy, LogOut, User, Ghost, Play, ArrowRight, Zap, Shield, UserCircle, X, LogIn, Lock, Target, Gem, Crown, Bot } from 'lucide-react';
 import { WinCondition, WinType } from '../types.ts';
 
 const AVATAR_COLORS = [
@@ -48,6 +48,7 @@ const MainMenu: React.FC = () => {
   // Mission Config State
   const [selectedWinType, setSelectedWinType] = useState<WinType>('WEALTH');
   const [selectedTarget, setSelectedTarget] = useState<number>(100);
+  const [botCount, setBotCount] = useState<number>(1);
 
   const resetForm = () => {
     setInputName('');
@@ -69,6 +70,7 @@ const MainMenu: React.FC = () => {
     const winCondition: WinCondition = {
       type: selectedWinType,
       target: selectedTarget,
+      botCount: botCount,
       label: selectedWinType === 'WEALTH' 
         ? `Accumulate ${selectedTarget} Coins` 
         : `Reach Level ${selectedTarget}`
@@ -356,7 +358,7 @@ const MainMenu: React.FC = () => {
 
       {/* MISSION CONFIG MODAL */}
       {showMissionConfig && (
-        <div className="absolute inset-0 bg-black/80 backdrop-blur-md z-50 flex items-center justify-center">
+        <div className="absolute inset-0 bg-black/80 backdrop-blur-md z-50 flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-slate-700 p-8 rounded-3xl shadow-2xl w-[500px] relative overflow-hidden">
              {/* Decorative header line */}
              <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-amber-500 via-indigo-500 to-amber-500"></div>
@@ -383,7 +385,7 @@ const MainMenu: React.FC = () => {
                 </button>
              </div>
 
-             <div className="bg-slate-950 p-6 rounded-2xl border border-slate-800 mb-8">
+             <div className="bg-slate-950 p-6 rounded-2xl border border-slate-800 mb-6">
                <label className="text-[10px] uppercase font-bold text-slate-500 tracking-wider mb-4 block text-center">
                  {selectedWinType === 'WEALTH' ? 'Target Accumulation (Credits)' : 'Target Rank (Level)'}
                </label>
@@ -409,6 +411,24 @@ const MainMenu: React.FC = () => {
                      </button>
                    ))
                  )}
+               </div>
+             </div>
+
+             {/* BOT COUNT SELECTOR */}
+             <div className="bg-slate-950 p-6 rounded-2xl border border-slate-800 mb-8">
+               <label className="text-[10px] uppercase font-bold text-slate-500 tracking-wider mb-4 block text-center flex items-center justify-center gap-2">
+                 <Bot className="w-3 h-3"/> Threat Level (Bots)
+               </label>
+               <div className="flex justify-between gap-2">
+                   {[1, 2, 3].map(val => (
+                     <button 
+                      key={val}
+                      onClick={() => setBotCount(val)}
+                      className={`flex-1 py-3 rounded-xl font-mono font-bold border transition-all ${botCount === val ? 'bg-red-500 text-white border-red-500' : 'bg-slate-900 text-slate-400 border-slate-800 hover:border-slate-600'}`}
+                     >
+                       {val}
+                     </button>
+                   ))}
                </div>
              </div>
 

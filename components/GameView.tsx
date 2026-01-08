@@ -35,7 +35,7 @@ const GameView: React.FC = () => {
   const logsContainerRef = useRef<HTMLDivElement>(null);
   
   const { 
-    grid, player, bot, user, winCondition, gameStatus,
+    grid, player, bots, user, winCondition, gameStatus,
     messageLog, isPlayerGrowing, toast, pendingConfirmation,
     movePlayer, togglePlayerGrowth, hideToast,
     abandonSession, processMovementStep, confirmPendingAction, cancelPendingAction
@@ -88,6 +88,15 @@ const GameView: React.FC = () => {
   const growthProgressPercent = currentHex 
     ? (currentHex.progress / (getSecondsToGrow(currentHex.currentLevel + 1) || 1)) * 100 
     : 0;
+  
+  // BUTTON LABEL LOGIC
+  const growthButtonLabel = useMemo(() => {
+    if (isPlayerGrowing) return 'GROWING';
+    if (currentHex && currentHex.currentLevel >= currentHex.maxLevel) return 'UPGRADE';
+    return 'GROWTH';
+  }, [isPlayerGrowing, currentHex]);
+
+  const isUpgradeAction = growthButtonLabel === 'UPGRADE';
 
   // Zoom Logic
   const handleWheel = useCallback((e: Konva.KonvaEventObject<WheelEvent>) => {
@@ -166,7 +175,8 @@ const GameView: React.FC = () => {
     playerNeighbors.forEach(neighbor => {
        const key = getHexKey(neighbor.q, neighbor.r);
        const hex = grid[key];
-       const isBot = neighbor.q === bot.q && neighbor.r === bot.r;
+       // Check against ANY bot
+       const isBot = bots.some(b => b.q === neighbor.q && b.r === neighbor.r);
        const isLocked = hex && hex.maxLevel > player.playerLevel;
        
        if (isBot) return; 
@@ -190,12 +200,12 @@ const GameView: React.FC = () => {
     });
     
     return lines;
-  }, [player.q, player.r, player.moves, player.coins, player.playerLevel, playerNeighbors, grid, bot.q, bot.r, isMoving]);
+  }, [player.q, player.r, player.moves, player.coins, player.playerLevel, playerNeighbors, grid, bots, isMoving]);
 
   // Common styles for HUD stats
   const statLabelStyle = "text-[9px] font-bold text-slate-500 uppercase leading-none tracking-widest mb-1";
-  const statValueStyle = "text-2xl font-black text-white leading-none";
-  const statIconStyle = "w-6 h-6";
+  const statValueStyle = "text-xl md:text-2xl font-black text-white leading-none";
+  const statIconStyle = "w-5 h-5 md:w-6 md:h-6";
 
   return (
     <div className="relative h-full w-full">
@@ -218,7 +228,7 @@ const GameView: React.FC = () => {
               const hex = grid[id];
               // Determine if hex is occupied by player or bot
               const isPlayerHere = hex.q === player.q && hex.r === player.r;
-              const isBotHere = hex.q === bot.q && hex.r === bot.r;
+              const isBotHere = bots.some(b => b.q === hex.q && b.r === hex.r);
               const isOccupied = isPlayerHere || isBotHere;
 
               return (
@@ -246,16 +256,18 @@ const GameView: React.FC = () => {
             ))}
 
             <Unit q={player.q} r={player.r} type={player.type} />
-            <Unit q={bot.q} r={bot.r} type={bot.type} />
+            {bots.map(b => (
+                <Unit key={b.id} q={b.q} r={b.r} type={b.type} color={b.avatarColor} />
+            ))}
           </Layer>
         </Stage>
       </div>
 
       {/* --- HUD: TOP CENTER (Stats) --- */}
-      <div className="absolute top-4 left-1/2 -translate-x-1/2 z-30 flex gap-8 px-8 py-3 bg-slate-900/90 backdrop-blur-3xl rounded-3xl border border-slate-800 shadow-2xl items-center pointer-events-auto">
+      <div className="absolute top-2 md:top-4 left-1/2 -translate-x-1/2 z-30 flex gap-4 md:gap-8 px-4 md:px-8 py-2 md:py-3 bg-slate-900/90 backdrop-blur-3xl rounded-3xl border border-slate-800 shadow-2xl items-center pointer-events-auto max-w-[95%] overflow-hidden">
           
           {/* Level */}
-          <div className="flex items-center gap-3 min-w-[80px]">
+          <div className="flex items-center gap-2 md:gap-3 min-w-[60px] md:min-w-[80px]">
              <Crown className={`${statIconStyle} text-indigo-400`} />
              <div className="flex flex-col">
                <span className={statLabelStyle}>Level</span>
@@ -263,10 +275,10 @@ const GameView: React.FC = () => {
              </div>
           </div>
 
-          <div className="w-px h-8 bg-slate-800"></div>
+          <div className="w-px h-6 md:h-8 bg-slate-800 hidden md:block"></div>
 
-          {/* Upgrade Cycle */}
-          <div className="flex items-center gap-3 min-w-[90px]">
+          {/* Upgrade Cycle (Hidden on small mobile) */}
+          <div className="hidden md:flex items-center gap-3 min-w-[90px]">
              <TrendingUp className={`${statIconStyle} text-emerald-500`} />
              <div className="flex flex-col">
                 <span className={statLabelStyle}>Upgrade</span>
@@ -285,10 +297,10 @@ const GameView: React.FC = () => {
              </div>
           </div>
 
-          <div className="w-px h-8 bg-slate-800"></div>
+          <div className="w-px h-6 md:h-8 bg-slate-800"></div>
 
           {/* Credits */}
-          <div className="flex items-center gap-3 min-w-[80px]">
+          <div className="flex items-center gap-2 md:gap-3 min-w-[60px] md:min-w-[80px]">
             <Coins className={`${statIconStyle} text-amber-500`} />
             <div className="flex flex-col">
               <span className={statLabelStyle}>Credits</span>
@@ -296,10 +308,10 @@ const GameView: React.FC = () => {
             </div>
           </div>
 
-          <div className="w-px h-8 bg-slate-800"></div>
+          <div className="w-px h-6 md:h-8 bg-slate-800"></div>
 
           {/* Moves */}
-          <div className="flex items-center gap-3 min-w-[80px]">
+          <div className="flex items-center gap-2 md:gap-3 min-w-[60px] md:min-w-[80px]">
             <Footprints className={`${statIconStyle} ${isMoving ? 'text-slate-500 animate-pulse' : 'text-blue-500'}`} />
             <div className="flex flex-col">
               <span className={statLabelStyle}>Moves</span>
@@ -309,32 +321,33 @@ const GameView: React.FC = () => {
       </div>
 
       {/* --- HUD: RIGHT SIDE (Rankings + Logs) --- */}
-      <div className="absolute top-4 right-4 z-20 flex flex-col gap-2 pointer-events-auto">
+      <div className="absolute top-20 md:top-4 right-2 md:right-4 z-20 flex flex-col gap-2 pointer-events-auto items-end">
         
-        {/* Compact Rankings Widget */}
-        <div className="bg-slate-900/90 backdrop-blur-md border border-slate-700 rounded-2xl p-3 w-64 shadow-xl">
+        {/* Compact Rankings Widget (Collapsible logic or simple smaller on mobile) */}
+        <div className="bg-slate-900/90 backdrop-blur-md border border-slate-700 rounded-2xl p-2 md:p-3 w-40 md:w-64 shadow-xl scale-90 md:scale-100 origin-top-right">
             <div className="flex items-center gap-2 mb-2 px-1">
-                <Trophy className="w-4 h-4 text-amber-500" />
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Live Rankings</span>
+                <Trophy className="w-3 h-3 md:w-4 md:h-4 text-amber-500" />
+                <span className="text-[9px] md:text-[10px] font-bold text-slate-400 uppercase tracking-wider">Live Rankings</span>
             </div>
             <div className="space-y-1">
-                {[player, bot].sort((a, b) => (b.totalCoinsEarned || 0) - (a.totalCoinsEarned || 0)).map((e, idx) => {
+                {[player, ...bots].sort((a, b) => (b.totalCoinsEarned || 0) - (a.totalCoinsEarned || 0)).map((e, idx) => {
                     const isPlayer = e.type === 'PLAYER';
-                    const color = isPlayer ? (user?.avatarColor || '#3b82f6') : '#ef4444';
+                    // Use stored color if available, otherwise fallback
+                    const color = isPlayer ? (user?.avatarColor || '#3b82f6') : (e.avatarColor || '#ef4444');
                     return (
-                        <div key={e.id} className="flex justify-between items-center bg-black/40 rounded-lg p-2">
-                           <div className="flex items-center gap-2">
-                               <div className="w-2 h-2 rounded-full" style={{ backgroundColor: color }} />
-                               <div className="flex flex-col">
-                                  <span className={`text-xs font-bold ${isPlayer ? 'text-white' : 'text-red-300'}`}>
-                                      {isPlayer ? (user?.nickname || 'YOU') : 'SENTINEL'}
+                        <div key={e.id} className="flex justify-between items-center bg-black/40 rounded-lg p-1.5 md:p-2">
+                           <div className="flex items-center gap-2 overflow-hidden">
+                               <div className="w-1.5 h-1.5 md:w-2 md:h-2 rounded-full shrink-0" style={{ backgroundColor: color }} />
+                               <div className="flex flex-col truncate">
+                                  <span className={`text-[10px] md:text-xs font-bold truncate ${isPlayer ? 'text-white' : 'text-red-300'}`}>
+                                      {isPlayer ? (user?.nickname || 'YOU') : (e.id.toUpperCase())}
                                   </span>
                                   {/* UPGRADE POINTS VISUALIZATION */}
                                   <div className="flex gap-0.5 mt-0.5">
                                       {Array.from({length: UPGRADE_LOCK_QUEUE_SIZE}).map((_, i) => (
                                           <div 
                                             key={i} 
-                                            className={`w-1.5 h-1.5 rounded-full ${
+                                            className={`w-1 h-1 md:w-1.5 md:h-1.5 rounded-full ${
                                                 e.recentUpgrades.length > i 
                                                 ? (isPlayer ? 'bg-emerald-500' : 'bg-red-500') 
                                                 : 'bg-slate-700'
@@ -344,7 +357,7 @@ const GameView: React.FC = () => {
                                   </div>
                                </div>
                            </div>
-                           <div className="flex items-center gap-3 text-[10px] font-mono">
+                           <div className="flex items-center gap-1.5 md:gap-3 text-[9px] md:text-[10px] font-mono shrink-0">
                                <span className="text-amber-500">{e.coins}©</span>
                                <span className="text-indigo-400">L{e.playerLevel}</span>
                            </div>
@@ -354,10 +367,10 @@ const GameView: React.FC = () => {
             </div>
         </div>
 
-        {/* Info Logs */}
+        {/* Info Logs (Hidden on Mobile) */}
         <div 
           ref={logsContainerRef}
-          className="w-64 flex flex-col items-end gap-1.5 overflow-hidden max-h-48 mask-linear-fade"
+          className="hidden md:flex w-64 flex-col items-end gap-1.5 overflow-hidden max-h-48 mask-linear-fade"
         >
           {messageLog.slice(0, 5).map((msg, idx) => (
              <div key={idx} className="w-full bg-black/70 backdrop-blur-sm border-r-2 border-slate-700 px-3 py-2 text-[10px] font-mono text-cyan-100/90 text-right rounded-l-lg shadow-sm animate-in slide-in-from-right-10 fade-in duration-300">
@@ -368,20 +381,20 @@ const GameView: React.FC = () => {
       </div>
 
       {/* --- HUD: BOTTOM CENTER (Actions) --- */}
-      <div className="absolute bottom-8 left-1/2 -translate-x-1/2 z-30 flex flex-col items-center gap-3 w-80 pointer-events-auto">
+      <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-30 flex flex-col items-center gap-3 w-[90%] md:w-80 pointer-events-auto">
         
         {/* Objective Pill */}
         {winCondition && (
           <div className="bg-slate-900/80 backdrop-blur-md px-4 py-1.5 rounded-full border border-slate-700 flex items-center gap-2 mb-1">
              <Target className="w-3 h-3 text-cyan-400" />
-             <span className="text-[9px] font-mono text-cyan-100 uppercase tracking-wider">{winCondition.label}</span>
+             <span className="text-[9px] font-mono text-cyan-100 uppercase tracking-wider whitespace-nowrap">{winCondition.label}</span>
           </div>
         )}
 
         {/* Warning Pill */}
         {currentHex && !growthCondition.canGrow && !isPlayerGrowing && !isMoving && (
           <div className="flex gap-2 px-3 py-1.5 bg-red-950/90 backdrop-blur-md rounded-lg border border-red-500/50 shadow-lg animate-pulse">
-            <AlertCircle className="w-3 h-3 text-red-500 mt-0.5" />
+            <AlertCircle className="w-3 h-3 text-red-500 mt-0.5 shrink-0" />
             <span className="text-[9px] text-red-100 uppercase font-bold tracking-tight">{growthCondition.reason}</span>
           </div>
         )}
@@ -396,24 +409,26 @@ const GameView: React.FC = () => {
             className={`relative flex-grow h-14 rounded-xl font-black text-xs uppercase tracking-[0.15em] flex items-center justify-center overflow-hidden transition-all border
               ${!growthCondition.canGrow || isMoving 
                   ? 'bg-slate-800 border-slate-700 text-slate-500 cursor-not-allowed' 
-                  : 'bg-slate-800 border-emerald-900 text-white hover:border-emerald-500'
+                  : isUpgradeAction
+                    ? 'bg-amber-500 border-amber-600 text-slate-900 hover:bg-amber-400'
+                    : 'bg-slate-800 border-emerald-900 text-white hover:border-emerald-500'
               }
             `}
           >
              {/* Progress Fill Layer */}
              <div 
-                className="absolute left-0 bottom-0 top-0 bg-emerald-600 transition-all duration-1000 ease-linear"
+                className={`absolute left-0 bottom-0 top-0 transition-all duration-1000 ease-linear ${isUpgradeAction ? 'bg-white/30' : 'bg-emerald-600'}`}
                 style={{ width: `${growthProgressPercent}%`, opacity: isPlayerGrowing ? 1 : 0.5 }}
              />
 
              {/* Content Layer (Above Progress) */}
              <div className="relative z-10 flex flex-col items-center gap-1 drop-shadow-md">
                 <div className="flex items-center gap-2">
-                    {isPlayerGrowing ? <Pause className="w-4 h-4 fill-white"/> : <Play className="w-4 h-4 fill-white"/>}
-                    <span>{isPlayerGrowing ? 'GROWING' : 'GROWTH'}</span>
+                    {isPlayerGrowing ? <Pause className={`w-4 h-4 ${isUpgradeAction ? 'fill-black' : 'fill-white'}`}/> : <Play className={`w-4 h-4 ${isUpgradeAction ? 'fill-black' : 'fill-white'}`}/>}
+                    <span>{growthButtonLabel}</span>
                 </div>
                 {/* Timer text */}
-                <span className="text-[9px] font-mono opacity-80">
+                <span className={`text-[9px] font-mono ${isUpgradeAction ? 'opacity-100 font-bold' : 'opacity-80'}`}>
                    {currentHex ? `${currentHex.progress}s / ${getSecondsToGrow(currentHex.currentLevel+1)}s` : '-'}
                 </span>
              </div>
@@ -422,7 +437,7 @@ const GameView: React.FC = () => {
           {/* Menu Button (Replaces Recharge) */}
           <button 
              onClick={() => setShowExitConfirmation(true)}
-             className="w-16 h-14 bg-slate-800 hover:bg-slate-700 border border-slate-700 hover:border-red-500/50 rounded-xl flex flex-col items-center justify-center text-slate-400 hover:text-red-200 transition-all active:scale-95"
+             className="w-16 h-14 bg-slate-800 hover:bg-slate-700 border border-slate-700 hover:border-red-500/50 rounded-xl flex flex-col items-center justify-center text-slate-400 hover:text-red-200 transition-all active:scale-95 shrink-0"
            >
               <Menu className="w-5 h-5 mb-1" />
               <span className="text-[8px] font-bold uppercase tracking-widest">Menu</span>
@@ -435,15 +450,15 @@ const GameView: React.FC = () => {
 
       {/* VICTORY MODAL */}
       {gameStatus === 'VICTORY' && (
-        <div className="absolute inset-0 z-[80] bg-black/80 backdrop-blur-md flex items-center justify-center pointer-events-auto">
-          <div className="bg-slate-900 border border-amber-500/50 p-10 rounded-3xl shadow-[0_0_100px_rgba(245,158,11,0.3)] max-w-lg w-full text-center relative overflow-hidden">
+        <div className="absolute inset-0 z-[80] bg-black/80 backdrop-blur-md flex items-center justify-center pointer-events-auto p-4">
+          <div className="bg-slate-900 border border-amber-500/50 p-8 md:p-10 rounded-3xl shadow-[0_0_100px_rgba(245,158,11,0.3)] max-w-lg w-full text-center relative overflow-hidden">
              <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-amber-400 to-transparent"></div>
              
-             <div className="mx-auto w-20 h-20 bg-amber-500/20 rounded-full flex items-center justify-center mb-6 border border-amber-500/50 animate-bounce">
-               <Crown className="w-10 h-10 text-amber-500" />
+             <div className="mx-auto w-16 h-16 md:w-20 md:h-20 bg-amber-500/20 rounded-full flex items-center justify-center mb-6 border border-amber-500/50 animate-bounce">
+               <Crown className="w-8 h-8 md:w-10 md:h-10 text-amber-500" />
              </div>
              
-             <h2 className="text-4xl font-black text-white mb-2 uppercase tracking-tighter">Mission Accomplished</h2>
+             <h2 className="text-3xl md:text-4xl font-black text-white mb-2 uppercase tracking-tighter">Mission Accomplished</h2>
              <p className="text-amber-500 font-bold text-sm tracking-widest uppercase mb-8">Objective Verified</p>
              
              <div className="bg-slate-950 p-6 rounded-2xl border border-slate-800 mb-8 space-y-4">
@@ -469,15 +484,15 @@ const GameView: React.FC = () => {
 
       {/* DEFEAT MODAL */}
       {gameStatus === 'DEFEAT' && (
-        <div className="absolute inset-0 z-[80] bg-black/80 backdrop-blur-md flex items-center justify-center pointer-events-auto">
-          <div className="bg-slate-900 border border-red-500/50 p-10 rounded-3xl shadow-[0_0_100px_rgba(239,68,68,0.3)] max-w-lg w-full text-center relative overflow-hidden">
+        <div className="absolute inset-0 z-[80] bg-black/80 backdrop-blur-md flex items-center justify-center pointer-events-auto p-4">
+          <div className="bg-slate-900 border border-red-500/50 p-8 md:p-10 rounded-3xl shadow-[0_0_100px_rgba(239,68,68,0.3)] max-w-lg w-full text-center relative overflow-hidden">
              <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-red-500 to-transparent"></div>
              
-             <div className="mx-auto w-20 h-20 bg-red-500/20 rounded-full flex items-center justify-center mb-6 border border-red-500/50">
-               <Shield className="w-10 h-10 text-red-500" />
+             <div className="mx-auto w-16 h-16 md:w-20 md:h-20 bg-red-500/20 rounded-full flex items-center justify-center mb-6 border border-red-500/50">
+               <Shield className="w-8 h-8 md:w-10 md:h-10 text-red-500" />
              </div>
              
-             <h2 className="text-4xl font-black text-white mb-2 uppercase tracking-tighter">Mission Failed</h2>
+             <h2 className="text-3xl md:text-4xl font-black text-white mb-2 uppercase tracking-tighter">Mission Failed</h2>
              <p className="text-red-500 font-bold text-sm tracking-widest uppercase mb-8">Sentinel Victory</p>
              
              <div className="bg-slate-950 p-6 rounded-2xl border border-slate-800 mb-8 space-y-4">
@@ -486,10 +501,8 @@ const GameView: React.FC = () => {
                  <span className="text-white font-mono">{winCondition?.label}</span>
                </div>
                <div className="flex justify-between items-center text-sm">
-                 <span className="text-slate-500 font-bold uppercase">Sentinel Progress</span>
-                 <span className="text-red-500 font-mono">
-                    {winCondition?.type === 'WEALTH' ? `${bot.totalCoinsEarned} Coins` : `Level ${bot.playerLevel}`}
-                 </span>
+                 <span className="text-slate-500 font-bold uppercase">Sentinel Status</span>
+                 <span className="text-red-500 font-mono">OBJECTIVE MET</span>
                </div>
              </div>
 
@@ -505,7 +518,7 @@ const GameView: React.FC = () => {
 
       {/* MOVE COST CONFIRMATION MODAL */}
       {pendingConfirmation && (
-        <div className="absolute inset-0 z-[60] bg-black/70 backdrop-blur-sm flex items-center justify-center pointer-events-auto">
+        <div className="absolute inset-0 z-[60] bg-black/70 backdrop-blur-sm flex items-center justify-center pointer-events-auto p-4">
           <div className="bg-slate-900 border border-slate-700 p-6 rounded-3xl shadow-2xl max-w-sm w-full text-center">
              <div className="mx-auto w-12 h-12 bg-amber-500/10 rounded-full flex items-center justify-center mb-4">
                <Coins className="w-6 h-6 text-amber-500" />
@@ -554,7 +567,7 @@ const GameView: React.FC = () => {
 
       {/* EXIT SESSION CONFIRMATION MODAL */}
       {showExitConfirmation && (
-        <div className="absolute inset-0 z-[70] bg-black/80 backdrop-blur-sm flex items-center justify-center pointer-events-auto">
+        <div className="absolute inset-0 z-[70] bg-black/80 backdrop-blur-sm flex items-center justify-center pointer-events-auto p-4">
           <div className="bg-slate-900 border border-slate-700 p-6 rounded-3xl shadow-2xl max-w-sm w-full text-center relative overflow-hidden">
              <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-red-500 to-transparent opacity-50"></div>
              
@@ -590,10 +603,10 @@ const GameView: React.FC = () => {
 
       {/* POPUP TOAST MESSAGE */}
       {toast && (
-        <div className="absolute top-24 left-1/2 -translate-x-1/2 z-50 animate-bounce">
-          <div className="bg-red-950/90 border border-red-500 text-red-100 px-6 py-3 rounded-2xl shadow-[0_0_30px_rgba(239,68,68,0.6)] backdrop-blur-md flex items-center gap-3">
-             <AlertTriangle className="w-6 h-6 text-red-500" />
-             <span className="text-sm font-black uppercase tracking-wider">{toast.message}</span>
+        <div className="absolute top-24 left-1/2 -translate-x-1/2 z-50 animate-bounce w-[90%] md:w-auto">
+          <div className="bg-red-950/90 border border-red-500 text-red-100 px-6 py-3 rounded-2xl shadow-[0_0_30px_rgba(239,68,68,0.6)] backdrop-blur-md flex items-center justify-center gap-3">
+             <AlertTriangle className="w-6 h-6 text-red-500 shrink-0" />
+             <span className="text-sm font-black uppercase tracking-wider text-center">{toast.message}</span>
           </div>
         </div>
       )}

@@ -5,13 +5,15 @@ import {
   INITIAL_MOVES, UPGRADE_LOCK_QUEUE_SIZE, EXCHANGE_RATE_COINS_PER_MOVE, BOT_ACTION_INTERVAL_MS, INITIAL_COINS
 } from './constants.ts';
 import { 
-  getHexKey, getNeighbors, findPath 
+  getHexKey, getCoordinatesFromKey, getNeighbors, findPath 
 } from './services/hexUtils.ts';
 import { checkGrowthCondition, calculateReward, getSecondsToGrow } from './gameEngine/rules.ts';
 import { calculateBotMove } from './gameEngine/ai.ts';
 
 // --- MOCK DATABASE ---
 const MOCK_USER_DB: Record<string, { password: string; avatarColor: string; avatarIcon: string }> = {};
+
+const BOT_PALETTE = ['#ef4444', '#f97316', '#a855f7', '#ec4899']; // Red, Orange, Purple, Pink
 
 let MOCK_LEADERBOARD: LeaderboardEntry[] = [
   { nickname: 'SENTINEL_AI', avatarColor: '#ef4444', avatarIcon: 'bot', maxCoins: 2500, maxLevel: 12, timestamp: Date.now() - 100000 },
@@ -77,6 +79,48 @@ const generateInitialGameData = (winCondition: WinCondition | null) => {
     initialGrid[getHexKey(n.q, n.r)] = createInitialHex(n.q, n.r, 0);
   });
   
+  // Bot Spawning Config
+  const botCount = winCondition?.botCount || 1;
+  const bots: Entity[] = [];
+  const spawnPoints = [
+    { q: 1, r: -1 }, // Top Right
+    { q: -1, r: 1 }, // Bottom Left
+    { q: 1, r: 0 },  // Right
+    { q: -1, r: 0 }  // Left
+  ];
+
+  for (let i = 0; i < Math.min(botCount, spawnPoints.length); i++) {
+    const sp = spawnPoints[i];
+    
+    // Ensure hex exists at spawn
+    if (!initialGrid[getHexKey(sp.q, sp.r)]) {
+        initialGrid[getHexKey(sp.q, sp.r)] = createInitialHex(sp.q, sp.r, 0);
+        getNeighbors(sp.q, sp.r).forEach(n => {
+            const k = getHexKey(n.q, n.r);
+            if (!initialGrid[k]) initialGrid[k] = createInitialHex(n.q, n.r, 0);
+        });
+    }
+
+    bots.push({
+      id: `bot-${i+1}`,
+      type: EntityType.BOT,
+      q: sp.q, 
+      r: sp.r,
+      playerLevel: 0,
+      coins: INITIAL_COINS,
+      moves: INITIAL_MOVES,
+      totalCoinsEarned: 0,
+      recentUpgrades: [],
+      movementQueue: [],
+      memory: {
+        lastPlayerPos: null,
+        chokePoints: [],
+        aggressionFactor: 0.5
+      },
+      avatarColor: BOT_PALETTE[i % BOT_PALETTE.length]
+    });
+  }
+  
   return {
     sessionId: Math.random().toString(36).substring(2, 15),
     winCondition,
@@ -92,31 +136,17 @@ const generateInitialGameData = (winCondition: WinCondition | null) => {
       recentUpgrades: [],
       movementQueue: []
     } as Entity,
-    bot: {
-      id: 'bot-1',
-      type: EntityType.BOT,
-      q: 1, r: -1,
-      playerLevel: 0,
-      coins: INITIAL_COINS,
-      moves: INITIAL_MOVES,
-      totalCoinsEarned: 0,
-      recentUpgrades: [],
-      movementQueue: [],
-      memory: {
-        lastPlayerPos: null,
-        chokePoints: [],
-        aggressionFactor: 0.5
-      }
-    } as Entity,
+    bots,
     currentTurn: 0,
     messageLog: [
       'Operational.',
-      winCondition ? `Objective: ${winCondition.label}` : 'Objective: Survive.'
+      winCondition ? `Objective: ${winCondition.label}` : 'Objective: Survive.',
+      `Threats detected: ${botCount}`
     ],
     gameStatus: 'PLAYING' as const,
     pendingConfirmation: null,
     isPlayerGrowing: false,
-    isBotGrowing: false,
+    growingBotIds: [],
     lastBotActionTime: Date.now(),
     toast: null,
     leaderboard: [...MOCK_LEADERBOARD],
@@ -207,7 +237,10 @@ export const useGameStore = create<GameStore>((set, get) => {
       const targetHex = state.grid[getHexKey(tq, tr)];
       if (targetHex && targetHex.maxLevel > state.player.playerLevel) return { toast: { message: `Rank L${targetHex.maxLevel} Required`, type: 'error', timestamp: Date.now() } };
 
-      const path = findPath({ q: state.player.q, r: state.player.r }, { q: tq, r: tr }, state.grid, state.player.playerLevel, [{ q: state.bot.q, r: state.bot.r }]);
+      // Build obstacle list (bots)
+      const obstacles = state.bots.map(b => ({ q: b.q, r: b.r }));
+      const path = findPath({ q: state.player.q, r: state.player.r }, { q: tq, r: tr }, state.grid, state.player.playerLevel, obstacles);
+      
       if (!path) return { toast: { message: "Path Blocked", type: 'error', timestamp: Date.now() } };
 
       let totalMoveCost = 0;
@@ -232,11 +265,12 @@ export const useGameStore = create<GameStore>((set, get) => {
       // Peek at next step to check collision
       const nextStep = state.player.movementQueue[0];
       
-      // Dynamic Collision Detection: Player hitting Bot
-      if (nextStep.q === state.bot.q && nextStep.r === state.bot.r) {
+      // Dynamic Collision Detection: Player hitting ANY Bot
+      const hitBot = state.bots.find(b => b.q === nextStep.q && b.r === nextStep.r);
+      if (hitBot) {
          return { 
            player: { ...state.player, movementQueue: [] },
-           toast: { message: "Path Blocked by Sentinel", type: 'error', timestamp: Date.now() }
+           toast: { message: `Path Blocked by Sentinel ${hitBot.id}`, type: 'error', timestamp: Date.now() }
          };
       }
 
@@ -261,28 +295,12 @@ export const useGameStore = create<GameStore>((set, get) => {
       const now = Date.now();
       const newGrid = { ...state.grid };
       let newPlayer = { ...state.player };
-      
-      // CLONE BOT STATE DEEPLY to prevent mutation bugs
-      let newBot = { ...state.bot };
-      if (newBot.memory) newBot.memory = { ...state.bot.memory }; 
-      newBot.movementQueue = [...state.bot.movementQueue]; 
-
       let logs = [...state.messageLog];
-      let isPlayerGrowing = state.isPlayerGrowing;
-      let isBotGrowing = state.isBotGrowing;
-      let lastBotActionTime = state.lastBotActionTime;
       
-      // Update Memory
-      if (newBot.memory) {
-         newBot.memory.lastPlayerPos = { q: newPlayer.q, r: newPlayer.r };
-      }
-
-      // --- HELPER: Process Entity Growth ---
+      // --- PLAYER GROWTH ---
+      let isPlayerGrowing = state.isPlayerGrowing;
       const processEntityGrowth = (ent: Entity, isGrowing: boolean): { ent: Entity, growing: boolean, finishedStep: boolean } => {
-        // Allow growth if queue is empty OR if the first item is an explicit upgrade command
         const hasUpgradeCmd = ent.movementQueue.length > 0 && ent.movementQueue[0].upgrade;
-        
-        // Block growth if moving (unless upgrading)
         if (!isGrowing || (ent.movementQueue.length > 0 && !hasUpgradeCmd)) {
              return { ent, growing: false, finishedStep: false };
         }
@@ -301,24 +319,20 @@ export const useGameStore = create<GameStore>((set, get) => {
            const rewards = calculateReward(targetLevel);
            let finalCoins = rewards.coins;
            let newMaxLevel = hex.maxLevel;
-           const prefix = ent.type === EntityType.PLAYER ? "[YOU]" : "[SENTINEL]";
+           const prefix = ent.type === EntityType.PLAYER ? "[YOU]" : `[${ent.id}]`;
            
            if (targetLevel > hex.maxLevel) {
-              // RECORD BREAKING
               newMaxLevel = targetLevel;
               ent.playerLevel = Math.max(ent.playerLevel, targetLevel);
-              
               if (targetLevel === 1) {
-                 // Expand Cycle
                  const q = [...ent.recentUpgrades, hex.id];
                  if (q.length > UPGRADE_LOCK_QUEUE_SIZE) q.shift();
                  ent.recentUpgrades = q;
                  logs.unshift(`${prefix} Sector L1 Acquired`);
               } else {
-                 // Major Break - Reset Queue
                  ent.recentUpgrades = [];
                  finalCoins = Math.pow(targetLevel, 2);
-                 logs.unshift(`${prefix} Record L${targetLevel}! +${finalCoins} credits`);
+                 logs.unshift(`${prefix} Record L${targetLevel}! +${finalCoins} cr`);
               }
            }
            
@@ -326,116 +340,124 @@ export const useGameStore = create<GameStore>((set, get) => {
            ent.totalCoinsEarned += finalCoins;
            ent.moves += 1;
            newGrid[key] = { ...hex, currentLevel: targetLevel, maxLevel: newMaxLevel, progress: 0 };
-           
            return { ent, growing: targetLevel < newMaxLevel, finishedStep: true }; 
         } else {
-           // PROGRESS
            newGrid[key] = { ...hex, progress: hex.progress + 1 };
            return { ent, growing: true, finishedStep: false };
         }
       };
 
-      // 1. Player Growth
       const pResult = processEntityGrowth(newPlayer, isPlayerGrowing);
       newPlayer = pResult.ent;
       isPlayerGrowing = pResult.growing;
 
-      // 2. Bot Growth (Unified Logic)
-      const bResult = processEntityGrowth(newBot, isBotGrowing);
-      newBot = bResult.ent;
-      isBotGrowing = bResult.growing;
+      // --- BOTS LOOP (Sequential to prevent collision stacking) ---
+      let lastBotActionTime = state.lastBotActionTime;
+      const newBots: Entity[] = [];
+      const growingBotIds: string[] = [];
+      
+      // Initialize set of occupied coordinates with Player + All Old Bot Positions
+      const occupiedHexKeys = new Set<string>();
+      occupiedHexKeys.add(getHexKey(newPlayer.q, newPlayer.r));
+      state.bots.forEach(b => occupiedHexKeys.add(getHexKey(b.q, b.r)));
 
-      // Handle Upgrade Command Completion
-      if (bResult.finishedStep) {
-          if (newBot.movementQueue.length > 0 && newBot.movementQueue[0].upgrade) {
-              newBot.movementQueue.shift();
-              // If we leveled up from a command, stop growing to allow re-evaluation (or next command)
-              isBotGrowing = false;
-              lastBotActionTime = now; // Pause after action
-          }
-      }
+      // Iterate bots SEQUENTIALLY
+      for (let i = 0; i < state.bots.length; i++) {
+         let b = { ...state.bots[i] };
+         if (b.memory) b.memory = { ...state.bots[i].memory };
+         b.movementQueue = [...state.bots[i].movementQueue];
+         
+         if (b.memory) b.memory.lastPlayerPos = { q: newPlayer.q, r: newPlayer.r };
 
-      // 3. Bot Logic (Movement / Decision) - Gated by Interval
-      if (!isBotGrowing && (now - lastBotActionTime > BOT_ACTION_INTERVAL_MS)) {
-        
-        if (newBot.movementQueue.length > 0) {
-            const nextStep = newBot.movementQueue[0];
-            
-            // CHECK FOR UPGRADE COMMAND (Forced Growth)
-            if (nextStep.upgrade) {
-                const bKey = getHexKey(newBot.q, newBot.r);
-                const bHex = newGrid[bKey];
-                
-                // Double check rules before starting growth
-                if (bHex && checkGrowthCondition(bHex, newBot).canGrow) {
-                    isBotGrowing = true;
-                    lastBotActionTime = now; // Action started
-                } else {
-                    // Cannot fulfill command (blocked?), skip it to prevent lock
-                    newBot.movementQueue.shift();
-                    lastBotActionTime = now; // Action used
-                }
-            } else {
-                // STANDARD MOVEMENT
-                // Dynamic Collision Detection: Bot hitting Player
-                if (nextStep.q === newPlayer.q && nextStep.r === newPlayer.r) {
-                     // Abort movement
-                     newBot.movementQueue = [];
-                     lastBotActionTime = now; // Pause
-                } else {
-                    newBot.movementQueue.shift();
-                    const oldKey = getHexKey(newBot.q, newBot.r);
-                    const nextKey = getHexKey(nextStep.q, nextStep.r);
-                    
-                    // Consume Cost
-                    const nextHex = newGrid[nextKey];
-                    const cost = (nextHex && nextHex.maxLevel >= 2) ? nextHex.maxLevel : 1;
-                    
-                    let canAfford = false;
-                    if (newBot.moves >= cost) {
-                        newBot.moves -= cost;
-                        canAfford = true;
-                    } else {
-                        const deficit = cost - newBot.moves;
-                        const coinCost = deficit * EXCHANGE_RATE_COINS_PER_MOVE;
-                        if (newBot.coins >= coinCost) {
-                            newBot.moves = 0;
-                            newBot.coins -= coinCost;
-                            canAfford = true;
-                        }
-                    }
+         // Remove current bot's old position from occupancy to allow it to move
+         const oldKey = getHexKey(b.q, b.r);
+         occupiedHexKeys.delete(oldKey);
 
-                    if (canAfford) {
-                        if (newGrid[oldKey]) newGrid[oldKey] = { ...newGrid[oldKey], currentLevel: 0, progress: 0 };
-                        newBot.q = nextStep.q;
-                        newBot.r = nextStep.r;
-                        
-                        getNeighbors(newBot.q, newBot.r).concat({q: newBot.q, r: newBot.r}).forEach(n => {
-                            const k = getHexKey(n.q, n.r);
-                            if (!newGrid[k]) newGrid[k] = createInitialHex(n.q, n.r, 0);
-                        });
-                        lastBotActionTime = now; // Action completed
-                    } else {
-                        newBot.movementQueue = []; // Clear queue if stuck
-                        lastBotActionTime = now;
-                    }
-                }
-            }
-        } else {
-            // DECIDE: Grow or Move?
-            const path = calculateBotMove(newBot, newGrid, newPlayer, state.winCondition);
-            if (path && path.length > 0) {
-                 newBot.movementQueue = path;
-                 lastBotActionTime = now; // Wait before acting on new plan
-            } else {
-                 // Idle / Recharge (if stuck or wealthy)
-                 if (newBot.coins >= EXCHANGE_RATE_COINS_PER_MOVE) {
-                     newBot.coins -= EXCHANGE_RATE_COINS_PER_MOVE;
-                     newBot.moves += 1;
-                 }
+         // Growth
+         let isBotGrowing = state.growingBotIds.includes(b.id);
+         const bResult = processEntityGrowth(b, isBotGrowing);
+         b = bResult.ent;
+         let stillGrowing = bResult.growing;
+
+         if (bResult.finishedStep) {
+             if (b.movementQueue.length > 0 && b.movementQueue[0].upgrade) {
+                 b.movementQueue.shift();
+                 stillGrowing = false;
                  lastBotActionTime = now;
-            }
-        }
+             }
+         }
+
+         // Movement / AI Decision
+         // We gate all bots by the same interval for simplicity.
+         if (!stillGrowing && (now - lastBotActionTime > BOT_ACTION_INTERVAL_MS)) {
+             if (b.movementQueue.length > 0) {
+                 const nextStep = b.movementQueue[0];
+                 if (nextStep.upgrade) {
+                     const bKey = getHexKey(b.q, b.r);
+                     const bHex = newGrid[bKey];
+                     if (bHex && checkGrowthCondition(bHex, b).canGrow) {
+                         stillGrowing = true; 
+                     } else {
+                         b.movementQueue.shift(); // Skip if blocked
+                     }
+                 } else {
+                     // Check collision with CURRENT Occupied Keys (includes Player + Moved Bots + Not Moved Bots)
+                     const targetKey = getHexKey(nextStep.q, nextStep.r);
+                     
+                     if (occupiedHexKeys.has(targetKey)) {
+                         b.movementQueue = []; // Stop if path blocked
+                     } else {
+                         // Process move
+                         b.movementQueue.shift();
+                         const costHex = newGrid[targetKey];
+                         const cost = (costHex && costHex.maxLevel >= 2) ? costHex.maxLevel : 1;
+                         
+                         let canAfford = false;
+                         if (b.moves >= cost) { b.moves -= cost; canAfford = true; }
+                         else {
+                            const deficit = cost - b.moves;
+                            const coinCost = deficit * EXCHANGE_RATE_COINS_PER_MOVE;
+                            if (b.coins >= coinCost) { b.moves = 0; b.coins -= coinCost; canAfford = true; }
+                         }
+
+                         if (canAfford) {
+                             if (newGrid[oldKey]) newGrid[oldKey] = { ...newGrid[oldKey], currentLevel: 0, progress: 0 };
+                             b.q = nextStep.q; b.r = nextStep.r;
+                             getNeighbors(b.q, b.r).concat({q: b.q, r: b.r}).forEach(n => {
+                                const k = getHexKey(n.q, n.r);
+                                if (!newGrid[k]) newGrid[k] = createInitialHex(n.q, n.r, 0);
+                             });
+                         } else {
+                             b.movementQueue = [];
+                         }
+                     }
+                 }
+             } else {
+                 // AI THINK
+                 const obstacles = Array.from(occupiedHexKeys).map(k => getCoordinatesFromKey(k));
+                 
+                 const path = calculateBotMove(b, newGrid, newPlayer, state.winCondition, obstacles);
+                 if (path && path.length > 0) {
+                     b.movementQueue = path;
+                 } else {
+                     if (b.coins >= EXCHANGE_RATE_COINS_PER_MOVE) {
+                         b.coins -= EXCHANGE_RATE_COINS_PER_MOVE;
+                         b.moves += 1;
+                     }
+                 }
+             }
+         }
+
+         if (stillGrowing) growingBotIds.push(b.id);
+         
+         // Register new position as occupied for subsequent bots
+         occupiedHexKeys.add(getHexKey(b.q, b.r));
+         newBots.push(b);
+      }
+      
+      // Update timer if any bot acted
+      if (now - lastBotActionTime > BOT_ACTION_INTERVAL_MS) {
+          lastBotActionTime = now;
       }
 
       // 4. Victory Check
@@ -444,8 +466,10 @@ export const useGameStore = create<GameStore>((set, get) => {
         const pWin = (state.winCondition.type === 'WEALTH' && newPlayer.totalCoinsEarned >= state.winCondition.target) ||
                      (state.winCondition.type === 'DOMINATION' && newPlayer.playerLevel >= state.winCondition.target);
         
-        const bWin = (state.winCondition.type === 'WEALTH' && newBot.totalCoinsEarned >= state.winCondition.target) ||
-                     (state.winCondition.type === 'DOMINATION' && newBot.playerLevel >= state.winCondition.target);
+        const bWin = newBots.some(b => 
+            (state.winCondition!.type === 'WEALTH' && b.totalCoinsEarned >= state.winCondition!.target) ||
+            (state.winCondition!.type === 'DOMINATION' && b.playerLevel >= state.winCondition!.target)
+        );
 
         if (pWin) {
             newStatus = 'VICTORY';
@@ -458,10 +482,10 @@ export const useGameStore = create<GameStore>((set, get) => {
       return {
         grid: newGrid,
         player: newPlayer,
-        bot: newBot,
+        bots: newBots,
         messageLog: logs.slice(0, 50),
         isPlayerGrowing,
-        isBotGrowing,
+        growingBotIds: growingBotIds,
         lastBotActionTime,
         gameStatus: newStatus,
         leaderboard: [...MOCK_LEADERBOARD]

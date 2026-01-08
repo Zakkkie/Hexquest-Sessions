@@ -214,7 +214,8 @@ export const calculateBotMove = (
   bot: Entity, 
   grid: Record<string, Hex>,
   player: Entity,
-  winCondition: WinCondition | null
+  winCondition: WinCondition | null,
+  obstacles: HexCoord[]
 ): HexCoord[] | null => {
   
   const botHexKey = getHexKey(bot.q, bot.r);
@@ -322,7 +323,7 @@ export const calculateBotMove = (
         candidate.coord,
         grid,
         bot.playerLevel,
-        [{ q: player.q, r: player.r }]
+        obstacles
       );
 
       if (path) {

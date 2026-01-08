@@ -34,6 +34,7 @@ export interface Entity {
   recentUpgrades: string[]; // Queue of Hex IDs where maxLevel was increased
   movementQueue: HexCoord[]; // For animated steps
   memory?: BotMemory; // AI Specific memory
+  avatarColor?: string; // Visual identifier
 }
 
 export interface ToastMessage {
@@ -67,6 +68,7 @@ export interface WinCondition {
   type: WinType;
   target: number;
   label: string;
+  botCount: number; // Added bot count to win condition/config
 }
 
 export interface LeaderboardEntry {
@@ -89,13 +91,13 @@ export interface GameState {
   winCondition: WinCondition | null;
   grid: Record<string, Hex>; // Key format: "q,r"
   player: Entity;
-  bot: Entity;
+  bots: Entity[]; // Changed from single bot to array
   currentTurn: number;
   gameStatus: 'PLAYING' | 'GAME_OVER' | 'VICTORY' | 'DEFEAT';
   messageLog: string[];
-  lastBotActionTime: number;
+  lastBotActionTime: number; // Tracks general bot tick cadence
   isPlayerGrowing: boolean;
-  isBotGrowing: boolean;
+  growingBotIds: string[]; // Tracks which bots are currently growing
   toast: ToastMessage | null;
   
   // Global Data

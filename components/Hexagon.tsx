@@ -1,16 +1,17 @@
 
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { Group, RegularPolygon, Text, Rect } from 'react-konva';
+import Konva from 'konva';
 import { Hex } from '../types.ts';
 import { HEX_SIZE } from '../constants.ts';
 import { getSecondsToGrow } from '../services/hexUtils.ts';
 import { useGameStore } from '../store.ts';
 
-// --- VISUAL COMPONENT (Pure) ---
 interface HexagonVisualProps {
   hex: Hex;
   isPlayerNeighbor: boolean;
   playerRank: number;
+  isOccupied: boolean;
   onHexClick: (q: number, r: number) => void;
 }
 
@@ -29,8 +30,11 @@ const LEVEL_COLORS: Record<number, { fill: string; stroke: string }> = {
   10: { fill: '#4c1d95', stroke: '#a855f7' }, 
 };
 
-const HexagonVisual: React.FC<HexagonVisualProps> = React.memo(({ hex, isPlayerNeighbor, playerRank, onHexClick }) => {
-  // Cartesian Coordinates for Pointy Top Hexes
+const HexagonVisual: React.FC<HexagonVisualProps> = React.memo(({ hex, isPlayerNeighbor, playerRank, isOccupied, onHexClick }) => {
+  const groupRef = useRef<Konva.Group>(null);
+  const glowRef = useRef<Konva.RegularPolygon>(null);
+  
+  // Cartesian Coordinates
   const x = HEX_SIZE * (3/2 * hex.q);
   const y = HEX_SIZE * Math.sqrt(3) * (hex.r + hex.q / 2);
 
@@ -41,11 +45,11 @@ const HexagonVisual: React.FC<HexagonVisualProps> = React.memo(({ hex, isPlayerN
   let strokeColor = colorSet.stroke;
   let strokeWidth = 1 + (hex.maxLevel * 0.2);
 
-  // Dim if L0 but discovered (fog of war style), slightly brighter base to be visible
+  // Fog of war effect for L0
   const opacity = (hex.currentLevel === 0 && hex.maxLevel > 0) ? 0.5 : 1;
 
   if (isPlayerNeighbor) {
-    strokeColor = '#3b82f6'; // Bright blue for move targets
+    strokeColor = '#3b82f6';
     strokeWidth = Math.max(strokeWidth, 2.5);
   }
 
@@ -55,34 +59,72 @@ const HexagonVisual: React.FC<HexagonVisualProps> = React.memo(({ hex, isPlayerN
   const progressPercent = Math.min(1, hex.progress / neededSeconds);
   const isLocked = hex.maxLevel > playerRank;
 
-  // Optimize handler to avoid creating function in render
+  // Animation Effect for Growth
+  useEffect(() => {
+    if (!glowRef.current) return;
+    
+    const anim = new Konva.Animation((frame) => {
+      if (!glowRef.current) return;
+      if (isGrowing) {
+        // Breathing effect
+        const scale = 1 + (Math.sin(frame!.time / 300) * 0.08);
+        const op = 0.4 + (Math.sin(frame!.time / 300) * 0.3);
+        glowRef.current.opacity(op);
+        glowRef.current.scale({x: scale, y: scale});
+      } else {
+        glowRef.current.opacity(0);
+        glowRef.current.scale({x: 1, y: 1});
+      }
+    }, glowRef.current.getLayer());
+
+    if (isGrowing) {
+      anim.start();
+    } else {
+      anim.stop();
+      if (glowRef.current) glowRef.current.opacity(0);
+    }
+
+    return () => anim.stop();
+  }, [isGrowing]);
+
   const handleClick = () => {
-    // Multi-step movement: click anywhere to attempt move
     onHexClick(hex.q, hex.r);
   };
 
   return (
     <Group 
+      ref={groupRef}
       x={x} 
       y={y} 
       onClick={handleClick}
       onTap={handleClick}
-      listening={true} // Allow interaction with all hexes for tooltip/move
+      listening={true}
     >
-      {/* 2.5D Depth Layer (Shadow/Side) */}
+      {/* Base Layer */}
       <RegularPolygon
         sides={6}
         radius={HEX_SIZE}
         fill="#020617" 
-        y={8} 
-        opacity={0.6}
+        y={6} 
+        opacity={0.5}
         rotation={30}
         listening={false}
-        perfectDrawEnabled={false} // Optimization: Disable expensive hit detection pixels
-        shadowForStrokeEnabled={false}
+        perfectDrawEnabled={false}
       />
       
-      {/* Main Tile */}
+      {/* Growth Pulse Layer */}
+      <RegularPolygon
+        ref={glowRef}
+        sides={6}
+        radius={HEX_SIZE}
+        fill={strokeColor}
+        opacity={0}
+        rotation={30}
+        listening={false}
+        perfectDrawEnabled={false}
+      />
+
+      {/* Main Hexagon */}
       <RegularPolygon
         sides={6}
         radius={HEX_SIZE}
@@ -90,92 +132,79 @@ const HexagonVisual: React.FC<HexagonVisualProps> = React.memo(({ hex, isPlayerN
         stroke={strokeColor}
         strokeWidth={strokeWidth}
         opacity={opacity}
-        shadowColor={strokeColor}
-        shadowBlur={hex.maxLevel >= 5 ? 15 : 0}
-        shadowOpacity={0.6}
-        shadowEnabled={hex.maxLevel >= 5} // Optimization: Only render shadow for high levels
-        shadowForStrokeEnabled={false}
         rotation={30}
-        perfectDrawEnabled={false} // Optimization
-      />
-
-      {/* Lock Overlay - Use Ternary, NOT && */}
-      {isLocked ? (
-        <Group listening={false}>
-          <RegularPolygon
-            sides={6}
-            radius={HEX_SIZE}
-            fill="#000000"
-            opacity={0.5}
-            rotation={30}
-            perfectDrawEnabled={false}
-          />
-          <Text
-            text="🔒"
-            fontSize={16}
-            x={-8}
-            y={-8}
-            fill="#ef4444"
-            perfectDrawEnabled={false}
-            shadowColor="black"
-            shadowBlur={2}
-          />
-        </Group>
-      ) : null}
-
-      {/* Level Text (Hide if locked to reduce clutter, or keep it?) -> Keep it so they know what rank is needed */}
-      <Text
-        text={`${hex.currentLevel}/${hex.maxLevel}`}
-        fontSize={10}
-        fill={isLocked ? "#94a3b8" : "#ffffff"}
-        fontStyle="bold"
-        align="center"
-        width={HEX_SIZE * 2}
-        x={-HEX_SIZE}
-        y={isLocked ? 10 : -5} // Shift down if lock is present
-        listening={false}
-        shadowColor="black"
-        shadowBlur={2}
         perfectDrawEnabled={false}
       />
 
-      {/* Progress Bar (Canvas) - Only show if not locked - Use Ternary, NOT && */}
-      {(isGrowing && !isLocked) ? (
-        <Group y={14} listening={false}>
+      {/* Stylized Level Number (Watermark) */}
+      {!isOccupied && hex.maxLevel > 0 && (
+        <Text
+          text={hex.maxLevel.toString()}
+          fontSize={HEX_SIZE * 1.5}
+          fontFamily="Impact, Arial Black, sans-serif"
+          fontStyle="bold"
+          fill="rgba(255,255,255,0.07)" // Very transparent watermark
+          align="center"
+          verticalAlign="middle"
+          width={HEX_SIZE * 2}
+          height={HEX_SIZE * 2}
+          x={-HEX_SIZE}
+          y={-HEX_SIZE + 2}
+          listening={false}
+          perfectDrawEnabled={false}
+        />
+      )}
+
+      {/* Lock Icon */}
+      {isLocked && (
+        <Text
+          text="🔒"
+          fontSize={14}
+          x={-7}
+          y={-20}
+          fill="#ef4444"
+          perfectDrawEnabled={false}
+          shadowColor="black"
+          shadowBlur={3}
+        />
+      )}
+
+      {/* Progress Bar */}
+      {(isGrowing && !isLocked) && (
+        <Group y={18} listening={false}>
           <Rect
-            x={-12}
-            width={24}
-            height={4}
-            fill="rgba(0,0,0,0.6)"
-            cornerRadius={2}
+            x={-15}
+            width={30}
+            height={3}
+            fill="rgba(0,0,0,0.5)"
+            cornerRadius={1.5}
             perfectDrawEnabled={false}
           />
           <Rect
-            x={-12}
-            width={24 * progressPercent}
-            height={4}
+            x={-15}
+            width={30 * progressPercent}
+            height={3}
             fill="#10b981"
-            cornerRadius={2}
+            cornerRadius={1.5}
             perfectDrawEnabled={false}
           />
         </Group>
-      ) : null}
+      )}
     </Group>
   );
 });
 
-// --- SMART WRAPPER (Optimization) ---
+// --- SMART WRAPPER ---
 interface SmartHexagonProps {
   id: string;
   isPlayerNeighbor: boolean;
-  playerRank: number; // New Prop
+  playerRank: number; 
+  isOccupied: boolean;
   onHexClick: (q: number, r: number) => void;
 }
 
-const SmartHexagon: React.FC<SmartHexagonProps> = React.memo(({ id, isPlayerNeighbor, playerRank, onHexClick }) => {
-  // Select ONLY the hex for this ID.
+const SmartHexagon: React.FC<SmartHexagonProps> = React.memo(({ id, isPlayerNeighbor, playerRank, isOccupied, onHexClick }) => {
   const hex = useGameStore(state => state.grid[id]);
-
   if (!hex) return null;
 
   return (
@@ -183,6 +212,7 @@ const SmartHexagon: React.FC<SmartHexagonProps> = React.memo(({ id, isPlayerNeig
       hex={hex} 
       isPlayerNeighbor={isPlayerNeighbor} 
       playerRank={playerRank}
+      isOccupied={isOccupied}
       onHexClick={onHexClick} 
     />
   );

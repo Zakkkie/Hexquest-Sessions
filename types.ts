@@ -1,8 +1,5 @@
 
-export interface Coordinates {
-  q: number;
-  r: number;
-}
+export type HexCoord = { q: number; r: number };
 
 export interface Hex {
   id: string;
@@ -19,6 +16,12 @@ export enum EntityType {
   BOT = 'BOT'
 }
 
+export interface BotMemory {
+  lastPlayerPos: HexCoord | null;
+  chokePoints: string[]; // IDs of hexes considered strategic
+  aggressionFactor: number; // 0.0 to 1.0
+}
+
 export interface Entity {
   id: string;
   type: EntityType;
@@ -29,7 +32,8 @@ export interface Entity {
   totalCoinsEarned: number;
   moves: number;
   recentUpgrades: string[]; // Queue of Hex IDs where maxLevel was increased
-  movementQueue: Coordinates[]; // For animated steps
+  movementQueue: HexCoord[]; // For animated steps
+  memory?: BotMemory; // AI Specific memory
 }
 
 export interface ToastMessage {
@@ -51,7 +55,7 @@ export interface UserProfile {
 export interface PendingConfirmation {
   type: 'MOVE_WITH_COINS';
   data: {
-    path: Coordinates[];
+    path: HexCoord[];
     costMoves: number;
     costCoins: number;
   };

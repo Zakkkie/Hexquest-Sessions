@@ -3,13 +3,13 @@ import React, { useEffect, useCallback, useState, useMemo, useRef } from 'react'
 import { Stage, Layer, Line } from 'react-konva';
 import Konva from 'konva';
 import { useGameStore } from '../store.ts';
-import { getHexKey, getNeighbors, checkGrowthCondition, getSecondsToGrow, hexToPixel } from '../services/hexUtils.ts';
+import { getHexKey, getNeighbors, checkGrowthCondition, getSecondsToGrow, hexToPixel, calculateReward, findPath, cubeDistance } from '../services/hexUtils.ts';
 import Hexagon from './Hexagon.tsx'; 
 import Unit from './Unit.tsx';
 import Background from './Background.tsx';
 import { 
   AlertCircle, Pause, Play, Trophy, Coins, Footprints, AlertTriangle, Menu, LogOut,
-  Crown, Target, TrendingUp, ChevronDown, ChevronUp, Shield, Clock
+  Crown, Target, TrendingUp, ChevronDown, ChevronUp, Shield, Clock, MapPin, Zap
 } from 'lucide-react';
 import { UPGRADE_LOCK_QUEUE_SIZE, EXCHANGE_RATE_COINS_PER_MOVE, HEX_SIZE } from '../constants.ts';
 import { Hex } from '../types.ts';
@@ -33,8 +33,8 @@ const GameView: React.FC = () => {
 
   // UI Local State
   const [showExitConfirmation, setShowExitConfirmation] = useState(false);
-  // Default rankings to closed on mobile (< 768px), open on desktop
   const [isRankingsOpen, setIsRankingsOpen] = useState(window.innerWidth >= 768);
+  const [hoveredHexId, setHoveredHexId] = useState<string | null>(null);
   const logsContainerRef = useRef<HTMLDivElement>(null);
   
   const { 
@@ -100,6 +100,43 @@ const GameView: React.FC = () => {
   }, [isPlayerGrowing, currentHex]);
 
   const isUpgradeAction = growthButtonLabel === 'UPGRADE';
+
+  // --- TOOLTIP DATA ---
+  const tooltipData = useMemo(() => {
+    if (!hoveredHexId) return null;
+    const hex = grid[hoveredHexId];
+    if (!hex) return null;
+
+    // Calculate Steps (Pathfinding)
+    const obstacles = bots.map(b => ({ q: b.q, r: b.r }));
+    
+    // Quick check: if hex is blocked by bot
+    const isBlockedByBot = obstacles.some(o => o.q === hex.q && o.r === hex.r);
+    
+    let steps: string | number = '...';
+    
+    if (hex.q === player.q && hex.r === player.r) {
+        steps = 0;
+    } else if (isBlockedByBot) {
+        steps = "Blocked";
+    } else {
+        const path = findPath(
+            { q: player.q, r: player.r }, 
+            { q: hex.q, r: hex.r }, 
+            grid, 
+            player.playerLevel, 
+            obstacles
+        );
+        steps = path ? path.length : "Unreachable";
+    }
+
+    const nextLevel = hex.currentLevel + 1;
+    const rewards = calculateReward(nextLevel);
+    const growthTime = getSecondsToGrow(nextLevel);
+    const isLocked = hex.maxLevel > player.playerLevel;
+
+    return { hex, steps, rewards, growthTime, isLocked, nextLevel };
+  }, [hoveredHexId, grid, player.q, player.r, player.playerLevel, bots]);
 
   // --- HELPER: TIME FORMATTER ---
   const formatTime = (ms: number) => {
@@ -198,7 +235,6 @@ const GameView: React.FC = () => {
     playerNeighbors.forEach(neighbor => {
        const key = getHexKey(neighbor.q, neighbor.r);
        const hex = grid[key];
-       // Check against ANY bot
        const isBot = bots.some(b => b.q === neighbor.q && b.r === neighbor.r);
        const isLocked = hex && hex.maxLevel > player.playerLevel;
        
@@ -231,7 +267,6 @@ const GameView: React.FC = () => {
       {/* --- BACKGROUND AMBIENCE (Canvas) --- */}
       <div className="absolute inset-0 pointer-events-none z-0">
          <Background variant="GAME" />
-         {/* Vignette Overlay */}
          <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,transparent_0%,#020617_100%)] opacity-70" />
       </div>
 
@@ -263,6 +298,7 @@ const GameView: React.FC = () => {
                   playerRank={player.playerLevel} 
                   isOccupied={isOccupied}
                   onHexClick={movePlayer} 
+                  onHover={setHoveredHexId}
                 />
               );
             })}
@@ -289,14 +325,9 @@ const GameView: React.FC = () => {
 
       {/* --- HUD HEADER --- */}
       <div className="absolute inset-x-0 top-0 p-2 md:p-4 z-30 pointer-events-none select-none">
-          
-          {/* CENTER: Stats Bar & Objective */}
-          {/* Mobile: Anchored Left with width constraint. Desktop: Centered. */}
+          {/* ... (Existing Top HUD Code) ... */}
           <div className="absolute top-2 md:top-4 left-2 md:left-1/2 md:-translate-x-1/2 flex flex-col items-start md:items-center gap-2 md:gap-3 max-w-[calc(100%-4rem)] md:max-w-fit pointer-events-auto transition-all duration-300 z-40">
-               
-               {/* Stats Panel */}
                <div className="flex items-center gap-2 md:gap-6 px-3 md:px-8 py-2 md:py-3 bg-slate-900/90 backdrop-blur-2xl rounded-[1.5rem] md:rounded-[2rem] border border-slate-800 shadow-2xl overflow-x-auto no-scrollbar max-w-full">
-                   
                    {/* LEVEL */}
                    <div className="flex flex-col items-center gap-0.5 md:gap-1 shrink-0">
                        <span className="text-[8px] md:text-[9px] font-bold text-slate-500 tracking-widest uppercase">Level</span>
@@ -305,9 +336,7 @@ const GameView: React.FC = () => {
                            <span className="text-lg md:text-2xl font-black text-white leading-none">{player.playerLevel}</span>
                        </div>
                    </div>
-
                    <div className="w-px h-6 md:h-8 bg-slate-800 shrink-0"></div>
-
                    {/* UPGRADE */}
                    <div className="flex flex-col items-center gap-0.5 md:gap-1 shrink-0">
                        <span className="text-[8px] md:text-[9px] font-bold text-slate-500 tracking-widest uppercase">Upgrade</span>
@@ -315,21 +344,12 @@ const GameView: React.FC = () => {
                            <TrendingUp className="w-4 h-4 md:w-5 md:h-5 text-emerald-500" />
                            <div className="flex gap-0.5 md:gap-1 h-4 md:h-5 items-center">
                                {Array.from({length: UPGRADE_LOCK_QUEUE_SIZE}).map((_, i) => (
-                                  <div 
-                                    key={i} 
-                                    className={`w-1.5 md:w-2 h-3 md:h-4 rounded-sm transition-all duration-300 ${
-                                        player.recentUpgrades.length > i 
-                                        ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.6)] scale-110' 
-                                        : 'bg-slate-800'
-                                    }`} 
-                                  />
+                                  <div key={i} className={`w-1.5 md:w-2 h-3 md:h-4 rounded-sm transition-all duration-300 ${player.recentUpgrades.length > i ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.6)] scale-110' : 'bg-slate-800'}`} />
                                ))}
                            </div>
                        </div>
                    </div>
-
                    <div className="w-px h-6 md:h-8 bg-slate-800 shrink-0"></div>
-
                    {/* CREDITS */}
                    <div className="flex flex-col items-center gap-0.5 md:gap-1 shrink-0">
                        <span className="text-[8px] md:text-[9px] font-bold text-slate-500 tracking-widest uppercase">Credits</span>
@@ -338,9 +358,7 @@ const GameView: React.FC = () => {
                            <span className="text-lg md:text-2xl font-black text-white leading-none">{player.coins}</span>
                        </div>
                    </div>
-
                    <div className="w-px h-6 md:h-8 bg-slate-800 shrink-0"></div>
-
                    {/* MOVES */}
                    <div className="flex flex-col items-center gap-0.5 md:gap-1 shrink-0">
                        <span className="text-[8px] md:text-[9px] font-bold text-slate-500 tracking-widest uppercase">Moves</span>
@@ -350,8 +368,6 @@ const GameView: React.FC = () => {
                        </div>
                    </div>
                </div>
-
-               {/* Objective */}
                {winCondition && (
                   <div className="bg-slate-950/80 backdrop-blur-md px-3 md:px-5 py-1 md:py-1.5 rounded-full border border-slate-800/60 flex items-center gap-2 shadow-lg animate-in slide-in-from-top-2 fade-in self-center">
                       <Target className="w-3 h-3 text-cyan-400" />
@@ -364,7 +380,6 @@ const GameView: React.FC = () => {
 
           {/* RIGHT: Rankings + Menu */}
           <div className="absolute top-2 md:top-4 right-2 md:right-4 flex items-start gap-2 pointer-events-auto z-50">
-               
                {/* Rankings Widget */}
                <div className={`
                   flex flex-col bg-slate-900/90 backdrop-blur-2xl border border-slate-700/80 rounded-2xl shadow-2xl overflow-hidden transition-all duration-300 ease-in-out origin-top-right
@@ -397,7 +412,6 @@ const GameView: React.FC = () => {
                                                <span className={`text-[10px] md:text-[11px] font-bold truncate leading-tight ${isPlayer ? 'text-white' : 'text-slate-400'}`}>
                                                    {isPlayer ? (user?.nickname || 'YOU') : e.id.toUpperCase()}
                                                </span>
-                                               {/* Mini Dots */}
                                                <div className="flex gap-0.5 mt-0.5">
                                                    {Array.from({length: UPGRADE_LOCK_QUEUE_SIZE}).map((_, i) => (
                                                        <div key={i} className={`w-1 h-1 rounded-full ${e.recentUpgrades.length > i ? 'bg-emerald-500' : 'bg-slate-800'}`} />
@@ -416,7 +430,7 @@ const GameView: React.FC = () => {
                    )}
                </div>
 
-               {/* EXIT Button (Replaces Menu) */}
+               {/* EXIT Button */}
                <button 
                   onClick={() => setShowExitConfirmation(true)}
                   className="w-11 h-11 flex items-center justify-center bg-slate-900/90 backdrop-blur-2xl border border-slate-700/80 rounded-2xl text-slate-400 hover:text-white hover:bg-slate-800 transition-all shadow-xl active:scale-95"
@@ -428,7 +442,6 @@ const GameView: React.FC = () => {
       </div>
 
       {/* --- HUD: RIGHT SIDE (Logs) --- */}
-      {/* Logs moved to below rankings but detached, hidden on mobile */}
       <div className="hidden md:flex absolute top-24 right-4 z-20 pointer-events-none flex-col items-end gap-1.5 w-64">
           {messageLog.slice(0, 5).map((msg, idx) => (
              <div key={idx} className="bg-black/70 backdrop-blur-sm border-r-2 border-slate-700 px-3 py-2 text-[10px] font-mono text-cyan-100/90 text-right rounded-l-lg shadow-sm animate-in slide-in-from-right-10 fade-in duration-300 pointer-events-auto">
@@ -437,19 +450,62 @@ const GameView: React.FC = () => {
           ))}
       </div>
 
-      {/* --- HUD: BOTTOM CENTER (Actions) --- */}
-      <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-30 flex flex-col items-center gap-3 w-[90%] md:w-80 pointer-events-auto">
+      {/* --- HUD: BOTTOM CENTER (Actions + Tooltip) --- */}
+      <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-30 flex flex-col items-center gap-3 w-[90%] md:w-72 pointer-events-none">
         
+        {/* --- HEX HOVER TOOLTIP (Relocated Here) --- */}
+        {tooltipData && (
+          <div className="w-full mb-2 bg-slate-900/90 backdrop-blur-xl border border-slate-700 p-3 rounded-2xl shadow-2xl animate-in slide-in-from-bottom-2 fade-in duration-200">
+             <div className="flex justify-between items-start mb-3">
+                <div className="flex flex-col">
+                   <h4 className="text-white font-black text-lg leading-none tracking-tight">HEX RANK {tooltipData.hex.maxLevel}</h4>
+                   <div className="flex items-center gap-1.5 mt-1.5">
+                       {tooltipData.isLocked ? <Shield className="w-3 h-3 text-red-500" /> : <MapPin className="w-3 h-3 text-emerald-500" />}
+                       <span className={`text-[9px] uppercase font-bold tracking-wider ${tooltipData.isLocked ? 'text-red-400' : 'text-emerald-400'}`}>
+                           {tooltipData.isLocked ? `LOCKED (Req L${tooltipData.hex.maxLevel})` : 'ACCESSIBLE'}
+                       </span>
+                   </div>
+                </div>
+             </div>
+             
+             <div className="grid grid-cols-3 gap-2">
+                 <div className="bg-slate-950/50 p-2 rounded-lg border border-slate-800 flex flex-col items-center">
+                     <span className="text-[8px] text-slate-500 font-bold uppercase mb-1">Dist</span>
+                     <div className="flex items-center gap-1">
+                         <Footprints className="w-3 h-3 text-blue-400" />
+                         <span className="text-xs text-white font-mono font-bold">{tooltipData.steps}</span>
+                     </div>
+                 </div>
+
+                 <div className="bg-slate-950/50 p-2 rounded-lg border border-slate-800 flex flex-col items-center">
+                     <span className="text-[8px] text-slate-500 font-bold uppercase mb-1">Reward</span>
+                     <div className="flex items-center gap-1">
+                         <Coins className="w-3 h-3 text-amber-400" />
+                         <span className="text-xs text-white font-mono font-bold">+{tooltipData.rewards.coins}</span>
+                     </div>
+                 </div>
+
+                  <div className="bg-slate-950/50 p-2 rounded-lg border border-slate-800 flex flex-col items-center">
+                     <span className="text-[8px] text-slate-500 font-bold uppercase mb-1">Time</span>
+                     <div className="flex items-center gap-1">
+                         <Clock className="w-3 h-3 text-cyan-400" />
+                         <span className="text-xs text-white font-mono font-bold">{tooltipData.growthTime}s</span>
+                     </div>
+                 </div>
+             </div>
+          </div>
+        )}
+
         {/* Warning Pill */}
         {currentHex && !growthCondition.canGrow && !isPlayerGrowing && !isMoving && (
-          <div className="flex gap-2 px-3 py-1.5 bg-red-950/90 backdrop-blur-md rounded-lg border border-red-500/50 shadow-lg animate-pulse">
+          <div className="flex gap-2 px-3 py-1.5 bg-red-950/90 backdrop-blur-md rounded-lg border border-red-500/50 shadow-lg animate-pulse pointer-events-auto">
             <AlertCircle className="w-3 h-3 text-red-500 mt-0.5 shrink-0" />
             <span className="text-[9px] text-red-100 uppercase font-bold tracking-tight">{growthCondition.reason}</span>
           </div>
         )}
 
         {/* Action Bar */}
-        <div className="bg-slate-900/95 backdrop-blur-3xl p-2 rounded-2xl border border-slate-800 shadow-[0_20px_50px_rgba(0,0,0,0.8)] w-full flex gap-2">
+        <div className="bg-slate-900/95 backdrop-blur-3xl p-2 rounded-2xl border border-slate-800 shadow-[0_20px_50px_rgba(0,0,0,0.8)] w-full flex gap-2 pointer-events-auto">
           
           {/* Combined Growth Button with Progress Fill */}
           <button 
@@ -489,7 +545,6 @@ const GameView: React.FC = () => {
       </div>
 
       {/* --- MODALS --- */}
-
       {/* VICTORY MODAL */}
       {gameStatus === 'VICTORY' && (
         <div className="absolute inset-0 z-[80] bg-black/80 backdrop-blur-md flex items-center justify-center pointer-events-auto p-4">
@@ -651,7 +706,7 @@ const GameView: React.FC = () => {
         </div>
       )}
 
-      {/* POPUP TOAST MESSAGE - Updated Positioning & Styling */}
+      {/* POPUP TOAST MESSAGE */}
       {toast && (
         <div className="absolute bottom-24 md:bottom-auto md:top-24 left-1/2 -translate-x-1/2 z-[60] w-[90%] max-w-md pointer-events-none">
           <div className="mx-auto bg-red-950/95 border border-red-500/50 text-red-100 px-4 py-3 rounded-2xl shadow-[0_0_30px_rgba(239,68,68,0.6)] backdrop-blur-xl flex flex-col md:flex-row items-center justify-center gap-2 md:gap-3 animate-in fade-in slide-in-from-bottom-4 md:slide-in-from-top-4 duration-300">

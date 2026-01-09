@@ -1,6 +1,6 @@
 
 import React, { useEffect, useRef } from 'react';
-import { Group, RegularPolygon, Text, Rect } from 'react-konva';
+import { Group, RegularPolygon, Rect, Path } from 'react-konva';
 import Konva from 'konva';
 import { Hex } from '../types.ts';
 import { HEX_SIZE } from '../constants.ts';
@@ -13,6 +13,7 @@ interface HexagonVisualProps {
   playerRank: number;
   isOccupied: boolean;
   onHexClick: (q: number, r: number) => void;
+  onHover: (id: string | null) => void;
 }
 
 // Visual Color Table
@@ -28,9 +29,12 @@ const LEVEL_COLORS: Record<number, { fill: string; stroke: string }> = {
   8: { fill: '#831843', stroke: '#db2777' }, 
   9: { fill: '#581c87', stroke: '#9333ea' }, 
   10: { fill: '#4c1d95', stroke: '#a855f7' }, 
+  11: { fill: '#0f172a', stroke: '#f8fafc' }, // Special case for high levels
 };
 
-const HexagonVisual: React.FC<HexagonVisualProps> = React.memo(({ hex, isPlayerNeighbor, playerRank, isOccupied, onHexClick }) => {
+const LOCK_PATH = "M12 1a5 5 0 0 0-5 5v2H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V10a2 2 0 0 0-2-2h-1V6a5 5 0 0 0-5-5zm0 2a3 3 0 0 1 3 3v2H9V6a3 3 0 0 1 3-3z";
+
+const HexagonVisual: React.FC<HexagonVisualProps> = React.memo(({ hex, isPlayerNeighbor, playerRank, isOccupied, onHexClick, onHover }) => {
   const groupRef = useRef<Konva.Group>(null);
   const glowRef = useRef<Konva.RegularPolygon>(null);
   
@@ -38,8 +42,8 @@ const HexagonVisual: React.FC<HexagonVisualProps> = React.memo(({ hex, isPlayerN
   const x = HEX_SIZE * (3/2 * hex.q);
   const y = HEX_SIZE * Math.sqrt(3) * (hex.r + hex.q / 2);
 
-  const levelIndex = Math.min(hex.maxLevel, 10);
-  const colorSet = LEVEL_COLORS[levelIndex] || LEVEL_COLORS[10];
+  const levelIndex = Math.min(hex.maxLevel, 11);
+  const colorSet = LEVEL_COLORS[levelIndex] || LEVEL_COLORS[0];
 
   let fillColor = colorSet.fill;
   let strokeColor = colorSet.stroke;
@@ -98,6 +102,8 @@ const HexagonVisual: React.FC<HexagonVisualProps> = React.memo(({ hex, isPlayerN
       y={y} 
       onClick={handleClick}
       onTap={handleClick}
+      onMouseEnter={() => onHover(hex.id)}
+      onMouseLeave={() => onHover(null)}
       listening={true}
     >
       {/* Base Layer */}
@@ -136,56 +142,59 @@ const HexagonVisual: React.FC<HexagonVisualProps> = React.memo(({ hex, isPlayerN
         perfectDrawEnabled={false}
       />
 
-      {/* Stylized Level Number (Watermark) */}
-      {!isOccupied && hex.maxLevel > 0 && (
-        <Text
-          text={hex.maxLevel.toString()}
-          fontSize={HEX_SIZE * 1.5}
-          fontFamily="Impact, Arial Black, sans-serif"
-          fontStyle="bold"
-          fill="rgba(255,255,255,0.07)" // Very transparent watermark
-          align="center"
-          verticalAlign="middle"
-          width={HEX_SIZE * 2}
-          height={HEX_SIZE * 2}
-          x={-HEX_SIZE}
-          y={-HEX_SIZE + 2}
-          listening={false}
-          perfectDrawEnabled={false}
-        />
-      )}
-
-      {/* Lock Icon */}
+      {/* NEW LOCK VISUAL: Large white semi-transparent with vignette */}
       {isLocked && (
-        <Text
-          text="🔒"
-          fontSize={14}
-          x={-7}
-          y={-20}
-          fill="#ef4444"
-          perfectDrawEnabled={false}
-          shadowColor="black"
-          shadowBlur={3}
-        />
+        <Group listening={false}>
+          {/* 1. Vignette Gradient: Transparent center, Dark edges */}
+          <RegularPolygon
+            sides={6}
+            radius={HEX_SIZE - 2}
+            rotation={30}
+            fillRadialGradientStartPoint={{ x: 0, y: 0 }}
+            fillRadialGradientStartRadius={0}
+            fillRadialGradientEndPoint={{ x: 0, y: 0 }}
+            fillRadialGradientEndRadius={HEX_SIZE}
+            fillRadialGradientColorStops={[0, 'rgba(255,255,255,0.1)', 0.7, 'rgba(0,0,0,0.4)', 1, 'rgba(0,0,0,0.8)']}
+            opacity={0.8}
+            perfectDrawEnabled={false}
+          />
+          
+          {/* 2. Large White Lock Icon - CENTERED */}
+          <Path
+            data={LOCK_PATH}
+            x={0}
+            y={0}
+            scaleX={1.5}
+            scaleY={1.5}
+            offsetX={12} // Center pivot (24x24 icon)
+            offsetY={12}
+            fill="white"
+            opacity={0.3} // Semi-transparent
+            perfectDrawEnabled={false}
+            shadowColor="black"
+            shadowBlur={10}
+            shadowOpacity={0.5}
+          />
+        </Group>
       )}
 
-      {/* Progress Bar */}
-      {(isGrowing && !isLocked) && (
+      {/* Progress Bar - Visible for ANY entity growing this hex */}
+      {isGrowing && (
         <Group y={18} listening={false}>
           <Rect
             x={-15}
             width={30}
-            height={3}
-            fill="rgba(0,0,0,0.5)"
-            cornerRadius={1.5}
+            height={4}
+            fill="rgba(0,0,0,0.7)"
+            cornerRadius={2}
             perfectDrawEnabled={false}
           />
           <Rect
             x={-15}
             width={30 * progressPercent}
-            height={3}
-            fill="#10b981"
-            cornerRadius={1.5}
+            height={4}
+            fill={isLocked ? "#f59e0b" : "#10b981"} // Amber if locked (bot), Emerald if player
+            cornerRadius={2}
             perfectDrawEnabled={false}
           />
         </Group>
@@ -201,9 +210,10 @@ interface SmartHexagonProps {
   playerRank: number; 
   isOccupied: boolean;
   onHexClick: (q: number, r: number) => void;
+  onHover: (id: string | null) => void;
 }
 
-const SmartHexagon: React.FC<SmartHexagonProps> = React.memo(({ id, isPlayerNeighbor, playerRank, isOccupied, onHexClick }) => {
+const SmartHexagon: React.FC<SmartHexagonProps> = React.memo(({ id, isPlayerNeighbor, playerRank, isOccupied, onHexClick, onHover }) => {
   const hex = useGameStore(state => state.grid[id]);
   if (!hex) return null;
 
@@ -214,6 +224,7 @@ const SmartHexagon: React.FC<SmartHexagonProps> = React.memo(({ id, isPlayerNeig
       playerRank={playerRank}
       isOccupied={isOccupied}
       onHexClick={onHexClick} 
+      onHover={onHover}
     />
   );
 });

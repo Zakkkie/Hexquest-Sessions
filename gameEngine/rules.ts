@@ -15,9 +15,19 @@ export const calculateReward = (newHexLevel: number): { coins: number, moves: nu
 
 /**
  * Calculates time required to grow a hex to the next level.
+ * Formula is cumulative/summed based on level to increase difficulty/investment.
+ * e.g. Level 1 = 10s, Level 2 = 15s (if SECONDS_PER_LEVEL_UNIT is 5)
  */
 export const getSecondsToGrow = (targetLevel: number): number => {
-  return targetLevel * SECONDS_PER_LEVEL_UNIT;
+  // Base time + incremental increase per level
+  // Old: targetLevel * 5
+  // New: 10 + (targetLevel - 1) * 5
+  // If targetLevel is 1: 10s
+  // If targetLevel is 2: 15s
+  const baseTime = 10;
+  if (targetLevel <= 1) return baseTime;
+  
+  return baseTime + ((targetLevel - 1) * SECONDS_PER_LEVEL_UNIT);
 };
 
 /**

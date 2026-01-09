@@ -123,6 +123,7 @@ const generateInitialGameData = (winCondition: WinCondition | null) => {
   
   return {
     sessionId: Math.random().toString(36).substring(2, 15),
+    sessionStartTime: Date.now(),
     winCondition,
     grid: initialGrid,
     player: {

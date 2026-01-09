@@ -30,7 +30,7 @@ const App: React.FC = () => {
            {/* Tilted 2.5D Plane Container */}
            <div className="absolute inset-0 perspective-container">
              <div className="absolute inset-0 origin-center transform-3d rotate-x-60 scale-125 -top-[20%] h-[150%]">
-                 <Background />
+                 <Background variant="MENU" />
              </div>
            </div>
 

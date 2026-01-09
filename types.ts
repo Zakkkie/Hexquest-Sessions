@@ -88,6 +88,7 @@ export interface GameState {
   
   // Game Session Data
   sessionId: string; // Unique ID for the current game session
+  sessionStartTime: number; // Timestamp when the session started
   winCondition: WinCondition | null;
   grid: Record<string, Hex>; // Key format: "q,r"
   player: Entity;

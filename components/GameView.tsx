@@ -6,9 +6,10 @@ import { useGameStore } from '../store.ts';
 import { getHexKey, getNeighbors, checkGrowthCondition, getSecondsToGrow, hexToPixel } from '../services/hexUtils.ts';
 import Hexagon from './Hexagon.tsx'; 
 import Unit from './Unit.tsx';
+import Background from './Background.tsx';
 import { 
   AlertCircle, Pause, Play, Trophy, Coins, Footprints, AlertTriangle, Menu, LogOut,
-  Crown, Target, TrendingUp, ChevronDown, ChevronUp, Shield
+  Crown, Target, TrendingUp, ChevronDown, ChevronUp, Shield, Clock
 } from 'lucide-react';
 import { UPGRADE_LOCK_QUEUE_SIZE, EXCHANGE_RATE_COINS_PER_MOVE, HEX_SIZE } from '../constants.ts';
 import { Hex } from '../types.ts';
@@ -38,7 +39,7 @@ const GameView: React.FC = () => {
   
   const { 
     grid, player, bots, user, winCondition, gameStatus,
-    messageLog, isPlayerGrowing, toast, pendingConfirmation,
+    messageLog, isPlayerGrowing, toast, pendingConfirmation, sessionStartTime,
     movePlayer, togglePlayerGrowth, hideToast,
     abandonSession, processMovementStep, confirmPendingAction, cancelPendingAction
   } = useGameStore();
@@ -99,6 +100,15 @@ const GameView: React.FC = () => {
   }, [isPlayerGrowing, currentHex]);
 
   const isUpgradeAction = growthButtonLabel === 'UPGRADE';
+
+  // --- HELPER: TIME FORMATTER ---
+  const formatTime = (ms: number) => {
+    const seconds = Math.floor((ms / 1000) % 60);
+    const minutes = Math.floor((ms / 1000 / 60) % 60);
+    const hours = Math.floor(ms / 1000 / 60 / 60);
+    if (hours > 0) return `${hours}h ${minutes}m ${seconds}s`;
+    return `${minutes}m ${seconds}s`;
+  };
 
   // --- CAMERA CONTROLS ---
 
@@ -215,16 +225,18 @@ const GameView: React.FC = () => {
     return lines;
   }, [player.q, player.r, player.moves, player.coins, player.playerLevel, playerNeighbors, grid, bots, isMoving]);
 
-  // Common styles for HUD stats
-  const statLabelStyle = "text-[8px] md:text-[9px] font-bold text-slate-500 uppercase leading-none tracking-widest mb-0.5 md:mb-1 whitespace-nowrap";
-  const statValueStyle = "text-lg md:text-2xl font-black text-white leading-none whitespace-nowrap";
-  const statIconStyle = "w-4 h-4 md:w-6 md:h-6 shrink-0";
-
   return (
-    <div className="relative h-full w-full">
+    <div className="relative h-full w-full overflow-hidden bg-[#020617]">
       
+      {/* --- BACKGROUND AMBIENCE (Canvas) --- */}
+      <div className="absolute inset-0 pointer-events-none z-0">
+         <Background variant="GAME" />
+         {/* Vignette Overlay */}
+         <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,transparent_0%,#020617_100%)] opacity-70" />
+      </div>
+
       {/* --- CANVAS LAYER --- */}
-      <div className="absolute inset-0 z-0 bg-[#020617]">
+      <div className="absolute inset-0 z-10">
         <Stage 
           width={dimensions.width} 
           height={dimensions.height} 
@@ -239,7 +251,6 @@ const GameView: React.FC = () => {
           <Layer>
             {visibleHexIds.map((id) => {
               const hex = grid[id];
-              // Determine if hex is occupied by player or bot
               const isPlayerHere = hex.q === player.q && hex.r === player.r;
               const isBotHere = bots.some(b => b.q === hex.q && b.r === hex.r);
               const isOccupied = isPlayerHere || isBotHere;
@@ -276,161 +287,154 @@ const GameView: React.FC = () => {
         </Stage>
       </div>
 
-      {/* --- HUD: TOP CENTER (Stats & Objective) --- */}
-      {/* Adjusted: Top-1 for minimal margin, gap-0.5 for tight stacking */}
-      <div className="absolute top-1 md:top-4 left-1/2 -translate-x-1/2 z-30 flex flex-col items-center gap-0.5 w-full max-w-[95%] pointer-events-none">
+      {/* --- HUD HEADER --- */}
+      <div className="absolute inset-x-0 top-0 p-2 md:p-4 z-30 pointer-events-none select-none">
           
-          {/* Row 1: Core Stats (Pointer events auto for tooltips if we had them) */}
-          <div className="flex gap-4 md:gap-8 px-4 md:px-8 py-1 md:py-3 bg-slate-900/90 backdrop-blur-3xl rounded-3xl border border-slate-800 shadow-2xl items-center pointer-events-auto overflow-x-auto no-scrollbar max-w-full">
+          {/* CENTER: Stats Bar & Objective */}
+          {/* Mobile: Anchored Left with width constraint. Desktop: Centered. */}
+          <div className="absolute top-2 md:top-4 left-2 md:left-1/2 md:-translate-x-1/2 flex flex-col items-start md:items-center gap-2 md:gap-3 max-w-[calc(100%-4rem)] md:max-w-fit pointer-events-auto transition-all duration-300 z-40">
+               
+               {/* Stats Panel */}
+               <div className="flex items-center gap-2 md:gap-6 px-3 md:px-8 py-2 md:py-3 bg-slate-900/90 backdrop-blur-2xl rounded-[1.5rem] md:rounded-[2rem] border border-slate-800 shadow-2xl overflow-x-auto no-scrollbar max-w-full">
+                   
+                   {/* LEVEL */}
+                   <div className="flex flex-col items-center gap-0.5 md:gap-1 shrink-0">
+                       <span className="text-[8px] md:text-[9px] font-bold text-slate-500 tracking-widest uppercase">Level</span>
+                       <div className="flex items-center gap-1.5 md:gap-2">
+                           <Crown className="w-4 h-4 md:w-5 md:h-5 text-indigo-500" />
+                           <span className="text-lg md:text-2xl font-black text-white leading-none">{player.playerLevel}</span>
+                       </div>
+                   </div>
 
-            {/* Level */}
-            <div className="flex flex-col items-center justify-center min-w-[50px] md:min-w-[70px] shrink-0">
-               <span className={statLabelStyle}>Level</span>
-               <div className="flex items-center gap-1.5 md:gap-2">
-                 <Crown className={`${statIconStyle} text-indigo-400`} />
-                 <span className={statValueStyle}>{player.playerLevel}</span>
+                   <div className="w-px h-6 md:h-8 bg-slate-800 shrink-0"></div>
+
+                   {/* UPGRADE */}
+                   <div className="flex flex-col items-center gap-0.5 md:gap-1 shrink-0">
+                       <span className="text-[8px] md:text-[9px] font-bold text-slate-500 tracking-widest uppercase">Upgrade</span>
+                       <div className="flex items-center gap-1.5 md:gap-2">
+                           <TrendingUp className="w-4 h-4 md:w-5 md:h-5 text-emerald-500" />
+                           <div className="flex gap-0.5 md:gap-1 h-4 md:h-5 items-center">
+                               {Array.from({length: UPGRADE_LOCK_QUEUE_SIZE}).map((_, i) => (
+                                  <div 
+                                    key={i} 
+                                    className={`w-1.5 md:w-2 h-3 md:h-4 rounded-sm transition-all duration-300 ${
+                                        player.recentUpgrades.length > i 
+                                        ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.6)] scale-110' 
+                                        : 'bg-slate-800'
+                                    }`} 
+                                  />
+                               ))}
+                           </div>
+                       </div>
+                   </div>
+
+                   <div className="w-px h-6 md:h-8 bg-slate-800 shrink-0"></div>
+
+                   {/* CREDITS */}
+                   <div className="flex flex-col items-center gap-0.5 md:gap-1 shrink-0">
+                       <span className="text-[8px] md:text-[9px] font-bold text-slate-500 tracking-widest uppercase">Credits</span>
+                       <div className="flex items-center gap-1.5 md:gap-2">
+                           <Coins className="w-4 h-4 md:w-5 md:h-5 text-amber-500" />
+                           <span className="text-lg md:text-2xl font-black text-white leading-none">{player.coins}</span>
+                       </div>
+                   </div>
+
+                   <div className="w-px h-6 md:h-8 bg-slate-800 shrink-0"></div>
+
+                   {/* MOVES */}
+                   <div className="flex flex-col items-center gap-0.5 md:gap-1 shrink-0">
+                       <span className="text-[8px] md:text-[9px] font-bold text-slate-500 tracking-widest uppercase">Moves</span>
+                       <div className="flex items-center gap-1.5 md:gap-2">
+                           <Footprints className={`w-4 h-4 md:w-5 md:h-5 ${isMoving ? 'text-slate-400 animate-pulse' : 'text-blue-500'}`} />
+                           <span className="text-lg md:text-2xl font-black text-white leading-none">{player.moves}</span>
+                       </div>
+                   </div>
                </div>
-            </div>
 
-            <div className="w-px h-6 md:h-8 bg-slate-800 shrink-0"></div>
-
-            {/* Upgrade Cycle */}
-            <div className="flex flex-col items-center justify-center min-w-[70px] shrink-0">
-               <span className={statLabelStyle}>Upgrade</span>
-               <div className="flex items-center gap-1.5 md:gap-2">
-                  <TrendingUp className={`${statIconStyle} text-emerald-500`} />
-                  <div className="flex gap-0.5 md:gap-1 h-4 md:h-5 items-center"> 
-                      {Array.from({length: UPGRADE_LOCK_QUEUE_SIZE}).map((_, i) => (
-                      <div 
-                          key={i} 
-                          className={`w-1.5 h-3 md:w-3 md:h-5 rounded-sm transition-all ${
-                              player.recentUpgrades.length > i 
-                              ? 'bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.8)]' 
-                              : 'bg-slate-700/50'
-                          }`} 
-                      />
-                      ))}
+               {/* Objective */}
+               {winCondition && (
+                  <div className="bg-slate-950/80 backdrop-blur-md px-3 md:px-5 py-1 md:py-1.5 rounded-full border border-slate-800/60 flex items-center gap-2 shadow-lg animate-in slide-in-from-top-2 fade-in self-center">
+                      <Target className="w-3 h-3 text-cyan-400" />
+                      <span className="text-[9px] md:text-[10px] font-mono text-cyan-100 uppercase tracking-widest">
+                          Objective: <span className="text-white font-bold ml-1">{winCondition.label}</span>
+                      </span>
                   </div>
-               </div>
-            </div>
-
-            <div className="w-px h-6 md:h-8 bg-slate-800 shrink-0"></div>
-
-            {/* Credits */}
-            <div className="flex flex-col items-center justify-center min-w-[50px] md:min-w-[70px] shrink-0">
-              <span className={statLabelStyle}>Credits</span>
-              <div className="flex items-center gap-1.5 md:gap-2">
-                <Coins className={`${statIconStyle} text-amber-500`} />
-                <span className={statValueStyle}>{player.coins}</span>
-              </div>
-            </div>
-
-            <div className="w-px h-6 md:h-8 bg-slate-800 shrink-0"></div>
-
-            {/* Moves */}
-            <div className="flex flex-col items-center justify-center min-w-[50px] md:min-w-[70px] shrink-0">
-              <span className={statLabelStyle}>Moves</span>
-              <div className="flex items-center gap-1.5 md:gap-2">
-                <Footprints className={`${statIconStyle} ${isMoving ? 'text-slate-500 animate-pulse' : 'text-blue-500'}`} />
-                <span className={statValueStyle}>{player.moves}</span>
-              </div>
-            </div>
+               )}
           </div>
 
-          {/* Row 2: Objective Text */}
-          {winCondition && (
-            <div className="bg-slate-900/80 backdrop-blur-md px-4 py-1 rounded-full border border-slate-700/50 flex items-center gap-2 shadow-lg pointer-events-auto">
-               <Target className="w-3 h-3 text-cyan-400" />
-               <span className="text-[10px] md:text-xs font-mono text-cyan-100 uppercase tracking-wider whitespace-nowrap">
-                  Objective: <span className="text-white font-bold">{winCondition.label}</span>
-               </span>
-            </div>
-          )}
+          {/* RIGHT: Rankings + Menu */}
+          <div className="absolute top-2 md:top-4 right-2 md:right-4 flex items-start gap-2 pointer-events-auto z-50">
+               
+               {/* Rankings Widget */}
+               <div className={`
+                  flex flex-col bg-slate-900/90 backdrop-blur-2xl border border-slate-700/80 rounded-2xl shadow-2xl overflow-hidden transition-all duration-300 ease-in-out origin-top-right
+                  ${isRankingsOpen ? 'w-56 md:w-64' : 'w-auto'}
+               `}>
+                   <div 
+                      onClick={() => setIsRankingsOpen(!isRankingsOpen)}
+                      className="flex items-center justify-between p-2 md:p-3 cursor-pointer hover:bg-white/5 transition-colors gap-2 md:gap-4 h-11"
+                   >
+                       <div className="flex items-center gap-2 md:gap-2.5">
+                           <Trophy className="w-4 h-4 text-amber-500" />
+                           {isRankingsOpen && <span className="text-[9px] md:text-[10px] font-bold text-slate-300 uppercase tracking-wider whitespace-nowrap">Live Rankings</span>}
+                       </div>
+                       {isRankingsOpen 
+                          ? <ChevronUp className="w-3 h-3 text-slate-500" /> 
+                          : <ChevronDown className="w-3 h-3 text-slate-500" />
+                       }
+                   </div>
+                   
+                   {isRankingsOpen && (
+                       <div className="flex flex-col p-2 pt-0 gap-1.5 max-h-[40vh] overflow-y-auto no-scrollbar">
+                           {[player, ...bots].sort((a, b) => (b.totalCoinsEarned || 0) - (a.totalCoinsEarned || 0)).map((e) => {
+                               const isPlayer = e.type === 'PLAYER';
+                               const color = isPlayer ? (user?.avatarColor || '#3b82f6') : (e.avatarColor || '#ef4444');
+                               return (
+                                   <div key={e.id} className="flex items-center justify-between p-2 rounded-xl bg-slate-950/50 border border-slate-800/50">
+                                       <div className="flex items-center gap-3 overflow-hidden">
+                                           <div className="w-2 h-2 rounded-full shrink-0 shadow-[0_0_8px_currentColor]" style={{ color, backgroundColor: color }} />
+                                           <div className="flex flex-col min-w-0">
+                                               <span className={`text-[10px] md:text-[11px] font-bold truncate leading-tight ${isPlayer ? 'text-white' : 'text-slate-400'}`}>
+                                                   {isPlayer ? (user?.nickname || 'YOU') : e.id.toUpperCase()}
+                                               </span>
+                                               {/* Mini Dots */}
+                                               <div className="flex gap-0.5 mt-0.5">
+                                                   {Array.from({length: UPGRADE_LOCK_QUEUE_SIZE}).map((_, i) => (
+                                                       <div key={i} className={`w-1 h-1 rounded-full ${e.recentUpgrades.length > i ? 'bg-emerald-500' : 'bg-slate-800'}`} />
+                                                   ))}
+                                               </div>
+                                           </div>
+                                       </div>
+                                       <div className="flex flex-col items-end leading-none">
+                                           <span className="text-[10px] md:text-[11px] font-mono text-amber-500 font-bold">{e.coins}</span>
+                                           <span className="text-[8px] md:text-[9px] font-mono text-indigo-400">L{e.playerLevel}</span>
+                                       </div>
+                                   </div>
+                               );
+                           })}
+                       </div>
+                   )}
+               </div>
+
+               {/* EXIT Button (Replaces Menu) */}
+               <button 
+                  onClick={() => setShowExitConfirmation(true)}
+                  className="w-11 h-11 flex items-center justify-center bg-slate-900/90 backdrop-blur-2xl border border-slate-700/80 rounded-2xl text-slate-400 hover:text-white hover:bg-slate-800 transition-all shadow-xl active:scale-95"
+                  title="Exit Session"
+               >
+                  <LogOut className="w-5 h-5" />
+               </button>
+          </div>
       </div>
 
-      {/* --- HUD: RIGHT SIDE (Rankings + Menu) --- */}
-      {/* Moved to top-20 (80px) to sit just below the header complex */}
-      <div className="absolute top-20 md:top-4 right-2 md:right-4 z-20 flex flex-col gap-2 pointer-events-auto items-end">
-        
-        <div className="flex gap-2 items-start">
-            {/* COLLAPSIBLE Rankings Widget */}
-            <div 
-                onClick={() => setIsRankingsOpen(!isRankingsOpen)}
-                className={`
-                    bg-slate-900/90 backdrop-blur-md border border-slate-700 rounded-2xl shadow-xl 
-                    w-44 md:w-64 origin-top-right overflow-hidden cursor-pointer transition-all duration-300 ease-in-out
-                    ${isRankingsOpen ? 'max-h-[60vh] opacity-100' : 'max-h-10 md:max-h-11 opacity-90 hover:opacity-100'}
-                `}
-            >
-                <div className="flex items-center justify-between p-2 md:p-3 h-10 md:h-11 hover:bg-white/5 transition-colors">
-                    <div className="flex items-center gap-2">
-                        <Trophy className="w-3 h-3 md:w-4 md:h-4 text-amber-500" />
-                        <span className="text-[9px] md:text-[10px] font-bold text-slate-400 uppercase tracking-wider">Live Rankings</span>
-                    </div>
-                    {isRankingsOpen 
-                        ? <ChevronUp className="w-3 h-3 md:w-4 md:h-4 text-slate-500" /> 
-                        : <ChevronDown className="w-3 h-3 md:w-4 md:h-4 text-slate-500" />
-                    }
-                </div>
-                
-                <div className={`space-y-1 p-2 md:p-3 pt-0 border-t border-slate-800/50 ${isRankingsOpen ? 'block' : 'hidden'}`}>
-                    {[player, ...bots].sort((a, b) => (b.totalCoinsEarned || 0) - (a.totalCoinsEarned || 0)).map((e, idx) => {
-                        const isPlayer = e.type === 'PLAYER';
-                        // Use stored color if available, otherwise fallback
-                        const color = isPlayer ? (user?.avatarColor || '#3b82f6') : (e.avatarColor || '#ef4444');
-                        return (
-                            <div key={e.id} className="flex justify-between items-center bg-black/40 rounded-lg p-1.5 md:p-2 hover:bg-black/60 transition-colors cursor-default" onClick={(e) => e.stopPropagation()}>
-                               <div className="flex items-center gap-2 overflow-hidden">
-                                   <div className="w-1.5 h-1.5 md:w-2 md:h-2 rounded-full shrink-0" style={{ backgroundColor: color }} />
-                                   <div className="flex flex-col truncate max-w-[80px] md:max-w-[100px]">
-                                      <span className={`text-[10px] md:text-xs font-bold truncate ${isPlayer ? 'text-white' : 'text-red-300'}`}>
-                                          {isPlayer ? (user?.nickname || 'YOU') : (e.id.toUpperCase())}
-                                      </span>
-                                      {/* UPGRADE POINTS VISUALIZATION */}
-                                      <div className="flex gap-0.5 mt-0.5">
-                                          {Array.from({length: UPGRADE_LOCK_QUEUE_SIZE}).map((_, i) => (
-                                              <div 
-                                                key={i} 
-                                                className={`w-1 h-1 md:w-1.5 md:h-1.5 rounded-full ${
-                                                    e.recentUpgrades.length > i 
-                                                    ? (isPlayer ? 'bg-emerald-500' : 'bg-red-500') 
-                                                    : 'bg-slate-700'
-                                                }`} 
-                                              />
-                                          ))}
-                                      </div>
-                                   </div>
-                               </div>
-                               <div className="flex items-center gap-1.5 md:gap-3 text-[9px] md:text-[10px] font-mono shrink-0">
-                                   <span className="text-amber-500">{e.coins}©</span>
-                                   <span className="text-indigo-400">L{e.playerLevel}</span>
-                               </div>
-                            </div>
-                        );
-                    })}
-                </div>
-            </div>
-
-            {/* MENU BUTTON (Relocated) */}
-            <button 
-                onClick={() => setShowExitConfirmation(true)}
-                className="h-10 w-10 md:h-11 md:w-11 bg-slate-900/90 backdrop-blur-md border border-slate-700 rounded-xl flex items-center justify-center text-slate-400 hover:text-white hover:bg-slate-800 transition-all shadow-xl active:scale-95 shrink-0"
-            >
-                <Menu className="w-5 h-5 md:w-6 md:h-6" />
-            </button>
-        </div>
-
-        {/* Info Logs (Hidden on Mobile) */}
-        <div 
-          ref={logsContainerRef}
-          className="hidden md:flex w-64 flex-col items-end gap-1.5 overflow-hidden max-h-48 mask-linear-fade"
-        >
+      {/* --- HUD: RIGHT SIDE (Logs) --- */}
+      {/* Logs moved to below rankings but detached, hidden on mobile */}
+      <div className="hidden md:flex absolute top-24 right-4 z-20 pointer-events-none flex-col items-end gap-1.5 w-64">
           {messageLog.slice(0, 5).map((msg, idx) => (
-             <div key={idx} className="w-full bg-black/70 backdrop-blur-sm border-r-2 border-slate-700 px-3 py-2 text-[10px] font-mono text-cyan-100/90 text-right rounded-l-lg shadow-sm animate-in slide-in-from-right-10 fade-in duration-300">
+             <div key={idx} className="bg-black/70 backdrop-blur-sm border-r-2 border-slate-700 px-3 py-2 text-[10px] font-mono text-cyan-100/90 text-right rounded-l-lg shadow-sm animate-in slide-in-from-right-10 fade-in duration-300 pointer-events-auto">
                {msg}
              </div>
           ))}
-        </div>
       </div>
 
       {/* --- HUD: BOTTOM CENTER (Actions) --- */}
@@ -504,9 +508,13 @@ const GameView: React.FC = () => {
                  <span className="text-slate-500 font-bold uppercase">Condition</span>
                  <span className="text-white font-mono">{winCondition?.label}</span>
                </div>
-               <div className="flex justify-between items-center text-sm">
+               <div className="flex justify-between items-center text-sm border-b border-slate-800 pb-2">
                  <span className="text-slate-500 font-bold uppercase">Net Credits</span>
                  <span className="text-amber-500 font-mono">{player.totalCoinsEarned}</span>
+               </div>
+               <div className="flex justify-between items-center text-sm">
+                 <span className="text-slate-500 font-bold uppercase">Duration</span>
+                 <span className="text-white font-mono">{formatTime(Date.now() - sessionStartTime)}</span>
                </div>
              </div>
 
@@ -538,9 +546,13 @@ const GameView: React.FC = () => {
                  <span className="text-slate-500 font-bold uppercase">Condition</span>
                  <span className="text-white font-mono">{winCondition?.label}</span>
                </div>
-               <div className="flex justify-between items-center text-sm">
+               <div className="flex justify-between items-center text-sm border-b border-slate-800 pb-2">
                  <span className="text-slate-500 font-bold uppercase">Sentinel Status</span>
                  <span className="text-red-500 font-mono">OBJECTIVE MET</span>
+               </div>
+               <div className="flex justify-between items-center text-sm">
+                 <span className="text-slate-500 font-bold uppercase">Duration</span>
+                 <span className="text-white font-mono">{formatTime(Date.now() - sessionStartTime)}</span>
                </div>
              </div>
 
@@ -640,7 +652,6 @@ const GameView: React.FC = () => {
       )}
 
       {/* POPUP TOAST MESSAGE - Updated Positioning & Styling */}
-      {/* Moved to bottom-24 on mobile to avoid covering top UI */}
       {toast && (
         <div className="absolute bottom-24 md:bottom-auto md:top-24 left-1/2 -translate-x-1/2 z-[60] w-[90%] max-w-md pointer-events-none">
           <div className="mx-auto bg-red-950/95 border border-red-500/50 text-red-100 px-4 py-3 rounded-2xl shadow-[0_0_30px_rgba(239,68,68,0.6)] backdrop-blur-xl flex flex-col md:flex-row items-center justify-center gap-2 md:gap-3 animate-in fade-in slide-in-from-bottom-4 md:slide-in-from-top-4 duration-300">
